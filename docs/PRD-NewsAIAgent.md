@@ -58,6 +58,11 @@ Sistem ini dimodelkan seperti **struktur perusahaan media profesional** — seti
 - Efisiensi biaya maksimal melalui **multi-provider LLM dengan rotasi API key otomatis**
 - Skalabilitas untuk mengelola **8 website sekaligus** dari satu dashboard terpusat
 
+### Target Deployment (Hasil Akhir):
+- Sistem dirancang untuk berjalan di **cPanel (shared/VPS hosting)** atau **server lokal berbasis Laragon**
+- Development dilakukan di Replit; hasil akhir di-deploy ke cPanel / Laragon
+- Tidak bergantung pada layanan cloud eksklusif — semua komponen kompatibel dengan lingkungan standar LAMP/Node di cPanel maupun Laragon
+
 ---
 
 ## 2. LATAR BELAKANG & TUJUAN
@@ -1365,7 +1370,7 @@ CREATE TABLE trend_predictions (
 |---|---|---|
 | Runtime | Node.js 20 LTS | Performa async, ekosistem luas |
 | Framework | Express.js | Ringan, fleksibel |
-| Database | PostgreSQL (Replit) | Built-in, reliable, SQL kuat |
+| Database | PostgreSQL | Reliable, SQL kuat — kompatibel cPanel & Laragon |
 | ORM | pg (native) + query builder | Kontrol penuh, performa |
 | Scheduler | node-cron | Ringan, tidak butuh Redis |
 | HTTP Client | axios | Robust, support retry |
@@ -1393,6 +1398,18 @@ CREATE TABLE trend_predictions (
 - WordPress REST API v2
 - Application Passwords (auth)
 - Yoast SEO / RankMath (meta SEO)
+
+### Deployment Environment
+| Lingkungan | Keterangan |
+|---|---|
+| **Development** | Replit (build & iterasi cepat) |
+| **Production — Hosting** | cPanel (shared hosting / VPS) menggunakan Node.js App + PostgreSQL via cPanel |
+| **Production — Lokal** | Laragon (Windows local server) — Node.js + PostgreSQL bawaan Laragon |
+| **Port default** | 5000 (dapat dikonfigurasi via `PORT` env variable) |
+| **Process Manager** | PM2 (untuk cPanel VPS & Laragon agar server tetap berjalan 24/7) |
+| **Build React** | `npm run build` → output di `client/dist/` di-serve sebagai static files oleh Express |
+
+> **Catatan**: Semua konfigurasi sensitif (API key, DB credentials) disimpan di file `.env` — tidak di-hardcode. Pastikan `.env` tidak ikut ter-upload ke repository.
 
 ---
 
