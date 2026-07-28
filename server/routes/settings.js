@@ -43,7 +43,6 @@ router.post('/change-password', async (req, res, next) => {
       return res.status(401).json({ success: false, error: { code: 'INVALID_PASSWORD', message: 'Current password is incorrect' } });
     }
     const newHash = await bcrypt.hash(new_password, 12);
-    // In a real deployment: update env/config store. Here we log the new hash.
     res.json({
       success: true,
       data: {
@@ -60,7 +59,7 @@ router.get('/export', async (req, res, next) => {
     const [sitesRes, sourcesRes, promptsRes] = await Promise.all([
       query(`SELECT id, name, url, wordpress_api_url, wordpress_username, niche, categories, status, config, persona_description FROM sites`),
       query(`SELECT id, name, url, rss_url, type, categories, credibility_score, fetch_interval_minutes FROM sources`),
-      query(`SELECT id, name, agent_type, category, prompt_template, is_champion, is_active FROM prompt_versions`),
+      query(`SELECT id, name, agent_type, category, format_key, prompt_template, is_champion, is_active FROM prompt_versions`),
     ]);
 
     const articlesCount = await query(`SELECT count(*) FROM articles`);
@@ -86,10 +85,18 @@ router.get('/export', async (req, res, next) => {
 });
 
 // GET /api/v1/settings/prompt-templates
+// Returns ALL templates (active + inactive) so the UI can manage them.
+// Query param ?active_only=true to filter only active ones (used internally by agents).
 router.get('/prompt-templates', async (req, res, next) => {
   try {
+    const activeOnly = req.query.active_only === 'true';
+    const whereClause = activeOnly ? 'WHERE is_active = true' : '';
     const { rows } = await query(
-      `SELECT * FROM prompt_versions WHERE is_active = true ORDER BY agent_type, is_champion DESC`
+      `SELECT id, name, agent_type, category, format_key, prompt_template,
+              is_champion, is_active, status, performance_score, sample_count, created_at
+       FROM prompt_versions
+       ${whereClause}
+       ORDER BY agent_type, format_key NULLS LAST, is_champion DESC, created_at ASC`
     );
     res.json({ success: true, data: rows });
   } catch (err) { next(err); }
@@ -98,35 +105,80 @@ router.get('/prompt-templates', async (req, res, next) => {
 // POST /api/v1/settings/prompt-templates
 router.post('/prompt-templates', async (req, res, next) => {
   try {
-    const { name, agent_type, category, prompt_template } = req.body;
+    const { name, agent_type, category, format_key, prompt_template } = req.body;
     if (!name || !agent_type || !prompt_template) {
       return res.status(400).json({ success: false, error: { code: 'MISSING_FIELDS', message: 'name, agent_type, prompt_template required' } });
     }
     const { v4: uuidv4 } = require('uuid');
     const { rows } = await query(
-      `INSERT INTO prompt_versions (id, name, agent_type, category, prompt_template, status)
-       VALUES ($1,$2,$3,$4,$5,'experimental') RETURNING *`,
-      [uuidv4(), name, agent_type, category || null, prompt_template]
+      `INSERT INTO prompt_versions (id, name, agent_type, category, format_key, prompt_template, is_champion, status)
+       VALUES ($1,$2,$3,$4,$5,$6, false,'experimental') RETURNING *`,
+      [uuidv4(), name, agent_type, category || null, format_key || null, prompt_template]
     );
     res.status(201).json({ success: true, data: rows[0] });
   } catch (err) { next(err); }
 });
 
 // PATCH /api/v1/settings/prompt-templates/:id
+// Supports: prompt_template, is_active, status, is_champion
+// Champion lifecycle: setting is_champion=true on a row also clears it on all
+// other rows with the same (agent_type, format_key) scope, ensuring at most one
+// champion per format/agent combination at any time.
 router.patch('/prompt-templates/:id', async (req, res, next) => {
   try {
-    const { prompt_template, is_active, status } = req.body;
+    const { id } = req.params;
+    const { prompt_template, is_active, status, is_champion } = req.body;
+
+    // Nothing to update
+    if (prompt_template === undefined && is_active === undefined && status === undefined && is_champion === undefined) {
+      return res.status(400).json({ success: false, error: { code: 'NO_UPDATES', message: 'No fields provided' } });
+    }
+
+    // Fetch target row first (needed for champion scope logic)
+    const targetRes = await query(`SELECT * FROM prompt_versions WHERE id = $1`, [id]);
+    if (!targetRes.rows.length) {
+      return res.status(404).json({ success: false, error: { code: 'NOT_FOUND', message: 'Template not found' } });
+    }
+    const target = targetRes.rows[0];
+
+    // ── Champion lifecycle ────────────────────────────────────────────────────
+    // When setting is_champion = true: clear champion flag on all other rows
+    // with the same agent_type + format_key scope (one champion per scope).
+    if (is_champion === true) {
+      const scope_format_key = target.format_key;
+      const scope_agent_type = target.agent_type;
+      if (scope_format_key) {
+        await query(
+          `UPDATE prompt_versions
+           SET is_champion = false
+           WHERE id != $1 AND agent_type = $2 AND format_key = $3`,
+          [id, scope_agent_type, scope_format_key]
+        );
+      } else {
+        // No format_key: scope by agent_type only
+        await query(
+          `UPDATE prompt_versions
+           SET is_champion = false
+           WHERE id != $1 AND agent_type = $2 AND format_key IS NULL`,
+          [id, scope_agent_type]
+        );
+      }
+    }
+
+    // ── Build update ──────────────────────────────────────────────────────────
     const updates = [];
     const values = [];
     let idx = 1;
     if (prompt_template !== undefined) { updates.push(`prompt_template = $${idx++}`); values.push(prompt_template); }
     if (is_active !== undefined)       { updates.push(`is_active = $${idx++}`);       values.push(is_active); }
     if (status !== undefined)          { updates.push(`status = $${idx++}`);           values.push(status); }
-    if (!updates.length) return res.status(400).json({ success: false, error: { code: 'NO_UPDATES', message: 'No fields' } });
+    if (is_champion !== undefined)     { updates.push(`is_champion = $${idx++}`);      values.push(is_champion); }
 
-    values.push(req.params.id);
-    const { rows } = await query(`UPDATE prompt_versions SET ${updates.join(', ')} WHERE id = $${idx} RETURNING *`, values);
-    if (!rows.length) return res.status(404).json({ success: false, error: { code: 'NOT_FOUND', message: 'Template not found' } });
+    values.push(id);
+    const { rows } = await query(
+      `UPDATE prompt_versions SET ${updates.join(', ')} WHERE id = $${idx} RETURNING *`,
+      values
+    );
     res.json({ success: true, data: rows[0] });
   } catch (err) { next(err); }
 });

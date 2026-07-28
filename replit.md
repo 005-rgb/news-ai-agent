@@ -32,7 +32,8 @@ The workflow `Start application` runs `npm run build && node server/index.js`.
 | 1.5 | Alert System | ✅ Done |
 | 2 | Source Intelligence (68 sources) | ✅ Done |
 | 3 | Content Pipeline Core | ✅ Done |
-| 4–11 | Writing Standards, Publisher, Dashboard… | 🔜 Planned |
+| 4 | Writing Standards Engine | ✅ Done |
+| 5–11 | Publisher, Scheduler, Dashboard… | 🔜 Planned |
 
 ## Login
 

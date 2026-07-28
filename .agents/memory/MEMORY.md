@@ -3,3 +3,4 @@
 - [Phase 1 key pool](phase1-keypool.md) — calcFreshnessScore exported from keyPool.js; sentinel row id '00000000-0000-0000-0000-000000000000' stores fallback chain order
 - [Phase 1 & 2 completion](phase1-phase2-done.md) — all bugs fixed and Phase 2 source intelligence implemented; 68 sources seeded
 - [Phase 3 Content Pipeline](phase3-pipeline.md) — all 5 agents real (Reporter→Writer→Editor→QualityRater→Orchestrator); each agent enqueues next job itself
+- [Phase 4 Writing Standards](phase4-writing-standards.md) — selectWritingStandard()+getFormatChecklist() in promptTemplates.js; editor applies humanizer; DB seeds 7 templates

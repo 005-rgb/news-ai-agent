@@ -180,6 +180,7 @@ CREATE TABLE IF NOT EXISTS prompt_versions (
   name              VARCHAR(255),
   agent_type        VARCHAR(100),
   category          VARCHAR(100),
+  format_key        VARCHAR(100),
   prompt_template   TEXT,
   performance_score FLOAT   DEFAULT 0,
   sample_count      INTEGER DEFAULT 0,
@@ -188,6 +189,16 @@ CREATE TABLE IF NOT EXISTS prompt_versions (
   status            VARCHAR(50) DEFAULT 'active',
   created_at        TIMESTAMPTZ DEFAULT NOW()
 );
+-- Add format_key column if it doesn't exist (idempotent migration)
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_name = 'prompt_versions' AND column_name = 'format_key'
+  ) THEN
+    ALTER TABLE prompt_versions ADD COLUMN format_key VARCHAR(100);
+  END IF;
+END $$;
 
 -- ── 11. competitor_data ──────────────────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS competitor_data (
@@ -358,6 +369,31 @@ async function checkConnection() {
   }
 }
 
+async function seedPromptVersions() {
+  const { TEMPLATES } = require('./config/promptTemplates');
+  for (const [key, tpl] of Object.entries(TEMPLATES)) {
+    // Upsert by format_key: insert if no row with this format_key exists
+    const existing = await pool.query(
+      `SELECT id FROM prompt_versions WHERE format_key = $1`, [key]
+    ).catch(() => ({ rows: [] }));
+    if (existing.rows.length === 0) {
+      await pool.query(
+        `INSERT INTO prompt_versions (id, name, agent_type, category, format_key, prompt_template, is_champion, is_active, status)
+         VALUES (gen_random_uuid(), $1, $2, $3, $4, $5, true, true, 'active')`,
+        [tpl.name, tpl.agentType || 'writer', tpl.category || key, key, tpl.template]
+      ).catch(() => {});
+    } else {
+      // Ensure format_key is set on existing rows (migration fix for rows seeded before format_key was added)
+      await pool.query(
+        `UPDATE prompt_versions SET format_key = $1 WHERE format_key IS NULL AND name = $2`,
+        [key, tpl.name]
+      ).catch(() => {});
+    }
+  }
+  const { rows } = await pool.query(`SELECT count(*) FROM prompt_versions`);
+  console.log(`[DB] Prompt versions: ${rows[0].count} records.`);
+}
+
 async function migrate() {
   console.log('[DB] Running migration...');
   const client = await pool.connect();
@@ -372,6 +408,10 @@ async function migrate() {
     await pool.query(SEED_SOURCES_SQL);
     const { rows } = await pool.query('SELECT count(*) FROM sources');
     console.log(`[DB] Sources table: ${rows[0].count} records.`);
+
+    // Seed prompt versions (Phase 4)
+    console.log('[DB] Seeding default prompt versions...');
+    await seedPromptVersions();
   } catch (err) {
     await client.query('ROLLBACK');
     console.error('[DB] Migration failed:', err.message);
