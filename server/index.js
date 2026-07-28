@@ -170,27 +170,42 @@ function startCronJobs() {
     try {
       const { rows } = await pool.query(`
         SELECT
-          gen_random_uuid()         AS id,
           CURRENT_DATE              AS date,
-          NULL::uuid                AS site_id,
-          NULL::uuid                AS api_key_id,
           COUNT(*)                  AS articles_generated,
-          0                         AS tokens_used,
+          COALESCE(SUM(CASE WHEN ak.usage_today IS NOT NULL THEN 0 ELSE 0 END), 0) AS tokens_used,
           0                         AS images_generated,
-          COUNT(*) FILTER (WHERE status = 'failed') AS errors_count,
-          AVG(quality_score)        AS avg_quality_score,
-          AVG(eeat_score)           AS avg_eeat_score
-        FROM articles
-        WHERE created_at::date = CURRENT_DATE
+          COUNT(*) FILTER (WHERE a.status = 'failed') AS errors_count,
+          AVG(a.quality_score)      AS avg_quality_score,
+          AVG(a.eeat_score)         AS avg_eeat_score
+        FROM articles a
+        WHERE a.created_at::date = CURRENT_DATE
       `);
-      if (rows.length && rows[0].articles_generated > 0) {
+
+      // Also sum tokens from api_keys usage_today
+      const { rows: tokenRows } = await pool.query(`
+        SELECT COALESCE(SUM(usage_today), 0) AS tokens_used
+        FROM api_keys
+        WHERE provider != '_config'
+      `);
+
+      if (rows.length) {
         await pool.query(
-          `INSERT INTO usage_stats
-             (date, articles_generated, errors_count, avg_quality_score, avg_eeat_score)
-           VALUES ($1,$2,$3,$4,$5)
-           ON CONFLICT DO NOTHING`,
-          [rows[0].date, rows[0].articles_generated, rows[0].errors_count,
-           rows[0].avg_quality_score, rows[0].avg_eeat_score]
+          `INSERT INTO usage_stats (date, articles_generated, tokens_used, errors_count, avg_quality_score, avg_eeat_score)
+           VALUES ($1,$2,$3,$4,$5,$6)
+           ON CONFLICT (date, site_id) DO UPDATE SET
+             articles_generated = EXCLUDED.articles_generated,
+             tokens_used        = EXCLUDED.tokens_used,
+             errors_count       = EXCLUDED.errors_count,
+             avg_quality_score  = EXCLUDED.avg_quality_score,
+             avg_eeat_score     = EXCLUDED.avg_eeat_score`,
+          [
+            rows[0].date,
+            parseInt(rows[0].articles_generated) || 0,
+            parseInt(tokenRows[0].tokens_used) || 0,
+            parseInt(rows[0].errors_count) || 0,
+            rows[0].avg_quality_score,
+            rows[0].avg_eeat_score,
+          ]
         );
       }
       await logger.info('Cron', 'Daily usage stats snapshot saved');

@@ -1,3 +1,4 @@
 - [Project setup & run](project-setup.md) — CJS project; postcss/tailwind configs must use module.exports not export default; react/react-dom must be explicitly installed
 - [Auth middleware path fix](auth-middleware.md) — requireAuth mounted at /api/v1 sees relative paths; PUBLIC_PATHS must be '/auth/login' not '/api/v1/auth/login'
 - [Phase 1 key pool](phase1-keypool.md) — calcFreshnessScore exported from keyPool.js; sentinel row id '00000000-0000-0000-0000-000000000000' stores fallback chain order
+- [Phase 1 & 2 completion](phase1-phase2-done.md) — all bugs fixed and Phase 2 source intelligence implemented; 68 sources seeded

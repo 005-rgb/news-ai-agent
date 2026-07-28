@@ -163,7 +163,8 @@ async function callLLM(prompt, options = {}) {
     const result = await providerDef.call(keyValue, prompt, model || providerDef.defaultModel, maxTokens, temperature);
     const latencyMs = Date.now() - start;
 
-    await keyPool.recordUsage(keyRow.id, result.tokensUsed);
+    // Pass latencyMs for avg_response_time_ms tracking + degraded detection
+    await keyPool.recordUsage(keyRow.id, result.tokensUsed, latencyMs);
     await logger.info(agentName, `LLM call OK — ${keyRow.provider} — ${result.tokensUsed} tokens — ${latencyMs}ms`, { provider: keyRow.provider, latencyMs, tokensUsed: result.tokensUsed });
 
     return {
@@ -179,14 +180,18 @@ async function callLLM(prompt, options = {}) {
     await logger.error(agentName, `LLM call FAILED — ${keyRow.provider} — ${errorType}`, { error: err.message, provider: keyRow.provider });
 
     // Retry with different provider if rate_limit or server_error
+    // Uses configured fallback chain order (not hardcoded Object.keys)
     if (['rate_limit','server_error'].includes(errorType) && !preferredProvider) {
-      const fallbackProviders = Object.keys(PROVIDERS).filter(p => p !== keyRow.provider);
+      const chain = await keyPool.getFallbackChain();
+      const fallbackProviders = chain.filter(p => p !== keyRow.provider);
       for (const fp of fallbackProviders) {
         try {
           const fb = await keyPool.selectBestKey({ provider: fp });
+          const fbStart = Date.now();
           const result = await PROVIDERS[fp].call(fb.keyValue, prompt, PROVIDERS[fp].defaultModel, maxTokens, temperature);
-          await keyPool.recordUsage(fb.keyRow.id, result.tokensUsed);
-          return { text: result.text, tokensUsed: result.tokensUsed, provider: fp, model: PROVIDERS[fp].defaultModel, latencyMs: Date.now() - start };
+          const fbLatency = Date.now() - fbStart;
+          await keyPool.recordUsage(fb.keyRow.id, result.tokensUsed, fbLatency);
+          return { text: result.text, tokensUsed: result.tokensUsed, provider: fp, model: PROVIDERS[fp].defaultModel, latencyMs: fbLatency };
         } catch (_) { continue; }
       }
     }

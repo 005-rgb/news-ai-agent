@@ -87,24 +87,26 @@ router.get('/alerts', async (req, res, next) => {
     // 1. Key-level alerts from api_keys status
     const { rows: keyAlerts } = await query(`
       SELECT id, provider, label, status, usage_today, daily_limit,
-             usage_this_month, monthly_limit, error_count, last_error, last_used_at
+             usage_this_month, monthly_limit, error_count, last_error, last_used_at,
+             metadata->>'avg_response_time_ms' AS avg_response_time_ms
       FROM api_keys
-      WHERE status IN ('warning','critical','exhausted','paused')
+      WHERE status IN ('warning','critical','exhausted','paused','degraded')
       ORDER BY
         CASE status
           WHEN 'exhausted' THEN 0
           WHEN 'critical'  THEN 1
-          WHEN 'warning'   THEN 2
-          ELSE 3
+          WHEN 'degraded'  THEN 2
+          WHEN 'warning'   THEN 3
+          ELSE 4
         END
     `);
 
-    // 2. Recent system log errors (last 6h)
+    // 2. Recent system log errors (last 24h — per spec)
     const { rows: logAlerts } = await query(`
       SELECT id, level, agent, message, metadata, created_at
       FROM system_logs
       WHERE level IN ('error','critical','warn')
-        AND created_at > NOW() - INTERVAL '6 hours'
+        AND created_at > NOW() - INTERVAL '24 hours'
       ORDER BY created_at DESC
       LIMIT 20
     `);
@@ -114,20 +116,31 @@ router.get('/alerts', async (req, res, next) => {
       const pct = k.daily_limit ? Math.round((k.usage_today / k.daily_limit) * 100) : 0;
       const severity = k.status === 'exhausted' ? 'critical'
                      : k.status === 'critical'  ? 'critical'
+                     : k.status === 'degraded'  ? 'warning'
                      : k.status === 'warning'   ? 'warning'
                      : 'info';
+      let message;
+      if (k.status === 'exhausted') {
+        message = `${k.provider} key "${k.label}" exhausted (${pct}% daily limit)`;
+      } else if (k.status === 'paused') {
+        message = `${k.provider} key "${k.label}" paused (${k.error_count} errors)`;
+      } else if (k.status === 'degraded') {
+        const avgMs = k.avg_response_time_ms ? Math.round(k.avg_response_time_ms) : null;
+        message = avgMs
+          ? `${k.provider} key "${k.label}" degraded — high latency ${avgMs}ms (>5s threshold)`
+          : `${k.provider} key "${k.label}" degraded — high latency detected`;
+      } else {
+        message = `${k.provider} key "${k.label}" at ${pct}% daily limit (${k.status})`;
+      }
       return {
         id: `key-${k.id}`,
         type: 'key_usage',
         severity,
         provider: k.provider,
         label: k.label,
-        message: k.status === 'exhausted'
-          ? `${k.provider} key "${k.label}" exhausted (${pct}% daily limit)`
-          : k.status === 'paused'
-          ? `${k.provider} key "${k.label}" paused (${k.error_count} errors)`
-          : `${k.provider} key "${k.label}" at ${pct}% daily limit (${k.status})`,
+        message,
         usage_pct: pct,
+        avg_response_time_ms: k.avg_response_time_ms ? Math.round(k.avg_response_time_ms) : null,
         key_id: k.id,
         created_at: k.last_used_at || new Date().toISOString(),
       };

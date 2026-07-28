@@ -78,16 +78,16 @@ async function getFallbackChain() {
 async function selectBestKey(options = {}) {
   const USAGE_CAP = 0.85; // 85% of daily_limit
 
-  // Fetch all eligible active keys
+  // Fetch all eligible active/degraded keys (degraded = slow but functional)
   const baseQuery = options.provider
     ? `SELECT * FROM api_keys
-       WHERE status = 'active'
+       WHERE status IN ('active', 'degraded')
          AND usage_today < daily_limit * ${USAGE_CAP}
          AND provider = $1
          AND provider != '_config'
        ORDER BY provider`
     : `SELECT * FROM api_keys
-       WHERE status = 'active'
+       WHERE status IN ('active', 'degraded')
          AND usage_today < daily_limit * ${USAGE_CAP}
          AND provider != '_config'
        ORDER BY provider`;
@@ -112,7 +112,7 @@ async function selectBestKey(options = {}) {
     const { rows: fb } = await query(
       `SELECT * FROM api_keys
        WHERE provider = $1
-         AND status = 'active'
+         AND status IN ('active', 'degraded')
          AND provider != '_config'
        LIMIT 10`,
       [provider]
@@ -129,7 +129,12 @@ async function selectBestKey(options = {}) {
 
 // ── recordUsage ───────────────────────────────────────────────────────────────
 
-async function recordUsage(keyId, tokensUsed = 0) {
+/**
+ * @param {string} keyId
+ * @param {number} tokensUsed
+ * @param {number} latencyMs  — response time in ms (for avg_response_time_ms tracking)
+ */
+async function recordUsage(keyId, tokensUsed = 0, latencyMs = 0) {
   const { rows } = await query(
     // reset_at diperbarui per-provider:
     //   rolling_24h  → NOW() + 24h (setiap kali key dipakai quota-window bergeser)
@@ -142,17 +147,54 @@ async function recordUsage(keyId, tokensUsed = 0) {
          reset_at = CASE
            WHEN provider = ANY($2) THEN NOW() + INTERVAL '24 hours'
            ELSE reset_at
-         END
+         END,
+         metadata = jsonb_set(
+           jsonb_set(
+             COALESCE(metadata, '{}'),
+             '{avg_response_time_ms}',
+             to_jsonb(
+               ROUND(
+                 (COALESCE((metadata->>'avg_response_time_ms')::numeric, $3::numeric) * 0.8
+                  + $3::numeric * 0.2)::numeric,
+                 0
+               )
+             )
+           ),
+           '{total_requests}',
+           to_jsonb(COALESCE((metadata->>'total_requests')::int, 0) + 1)
+         )
      WHERE id = $1
      RETURNING id, provider, label, usage_today, daily_limit,
-               usage_this_month, monthly_limit, status`,
-    [keyId, ROLLING_24H_PROVIDERS]
+               usage_this_month, monthly_limit, status, metadata`,
+    [keyId, ROLLING_24H_PROVIDERS, latencyMs]
   );
   if (!rows.length) return;
 
   const row = rows[0];
   const pct = (row.usage_today / (row.daily_limit || 1000)) * 100;
   const threshold = config.keyWarningThreshold || 80;
+
+  // Degraded: response time > 5s (only flag if currently active/warning/degraded)
+  if (latencyMs > 5000 && !['exhausted','critical','paused'].includes(row.status)) {
+    if (row.status !== 'degraded') {
+      await query(`UPDATE api_keys SET status = 'degraded' WHERE id = $1`, [keyId]);
+      await logger.warn('KeyPool',
+        `Key degraded: ${row.provider} "${row.label}" — high latency ${latencyMs}ms`,
+        { keyId, provider: row.provider, latencyMs }
+      );
+    }
+    return; // Don't override degraded with normal usage thresholds
+  }
+
+  // Restore degraded key back to active if latency is now normal (< 2s)
+  if (latencyMs > 0 && latencyMs < 2000 && row.status === 'degraded') {
+    await query(`UPDATE api_keys SET status = 'active' WHERE id = $1`, [keyId]);
+    await logger.info('KeyPool',
+      `Key restored: ${row.provider} "${row.label}" — latency back to normal ${latencyMs}ms`,
+      { keyId, provider: row.provider, latencyMs }
+    );
+    // Continue to check usage thresholds below
+  }
 
   if (pct >= 100) {
     await query(`UPDATE api_keys SET status = 'exhausted' WHERE id = $1`, [keyId]);
@@ -214,7 +256,7 @@ async function resetDailyUsage() {
      SET usage_today = 0,
          status      = 'active',
          reset_at    = $1
-     WHERE status IN ('warning','critical','exhausted')
+     WHERE status IN ('warning','critical','exhausted','degraded')
        AND provider = ANY($2)`,
     [nextMidnightUTC.toISOString(), MIDNIGHT_UTC_PROVIDERS]
   );
@@ -231,7 +273,7 @@ async function resetExpiredRollingKeys() {
      SET usage_today = 0,
          status      = 'active',
          reset_at    = NOW() + INTERVAL '24 hours'
-     WHERE status IN ('warning','critical','exhausted')
+     WHERE status IN ('warning','critical','exhausted','degraded')
        AND provider = ANY($1)
        AND reset_at IS NOT NULL
        AND reset_at <= NOW()`,
@@ -287,6 +329,7 @@ module.exports = {
   resetMonthlyUsage,
   getPoolStatus,
   calcFreshnessScore,
+  getFallbackChain,
   KeyPoolExhaustedError,
   ROLLING_24H_PROVIDERS,
   MIDNIGHT_UTC_PROVIDERS,

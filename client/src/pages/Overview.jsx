@@ -37,7 +37,8 @@ export default function Overview({ navigate }) {
       setStats(s.data);
       setPipeline(p.data || {});
       setActivity(act.data || []);
-      setAlerts(al.data || []);
+      // al.data = { alerts: [], logs: [], summary: {} } — extract .alerts array
+      setAlerts(al.data?.alerts || []);
       setSiteList(sl.data || []);
     } catch (err) {
       console.error('Overview load error:', err);
@@ -77,8 +78,13 @@ export default function Overview({ navigate }) {
               <div className="space-y-1 max-h-32 overflow-y-auto">
                 {alerts.slice(0, 5).map(a => (
                   <div key={a.id} className="text-sm text-red-700">
-                    <span className="font-medium">[{a.level?.toUpperCase()}]</span> {a.message}
-                    <span className="text-red-400 ml-2 text-xs">{new Date(a.created_at).toLocaleTimeString('id-ID')}</span>
+                    <span className={`font-medium mr-1 ${a.severity === 'critical' ? 'text-red-700' : 'text-yellow-700'}`}>
+                      [{(a.severity || a.type || 'alert').toUpperCase()}]
+                    </span>
+                    {a.message}
+                    <span className="text-red-400 ml-2 text-xs">
+                      {a.created_at ? new Date(a.created_at).toLocaleTimeString('id-ID') : ''}
+                    </span>
                   </div>
                 ))}
               </div>

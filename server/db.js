@@ -225,6 +225,16 @@ CREATE INDEX IF NOT EXISTS idx_api_keys_provider       ON api_keys(provider, sta
 CREATE INDEX IF NOT EXISTS idx_sources_categories      ON sources USING GIN(categories);
 CREATE INDEX IF NOT EXISTS idx_content_cal_site_date   ON content_calendar(site_id, scheduled_date, status);
 CREATE INDEX IF NOT EXISTS idx_usage_stats_date        ON usage_stats(date, site_id);
+
+-- Unique constraint for daily stats upsert (date + site_id combo)
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint WHERE conname = 'usage_stats_date_site_id_key'
+  ) THEN
+    ALTER TABLE usage_stats ADD CONSTRAINT usage_stats_date_site_id_key UNIQUE (date, site_id);
+  END IF;
+END $$;
 `;
 
 // ── Seed Data ─────────────────────────────────────────────────────────────────
@@ -261,7 +271,63 @@ SELECT * FROM (VALUES
   ('Bola.com', 'https://www.bola.com', 'https://www.bola.com/rss/', 'rss', ARRAY['olahraga'], 8.3, 30),
   ('Goal.com Indonesia', 'https://www.goal.com/id', 'https://www.goal.com/id/feed/news', 'rss', ARRAY['olahraga'], 8.5, 30),
   ('Tirto.id', 'https://tirto.id', 'https://tirto.id/rss', 'rss', ARRAY['politik','hukum','bisnis'], 8.8, 60),
-  ('Kata Data', 'https://katadata.co.id', 'https://katadata.co.id/rss.xml', 'rss', ARRAY['bisnis','teknologi'], 8.7, 60)
+  ('Kata Data', 'https://katadata.co.id', 'https://katadata.co.id/rss.xml', 'rss', ARRAY['bisnis','teknologi'], 8.7, 60),
+
+  -- ── Politik tambahan ──────────────────────────────────────────────────────
+  ('Media Indonesia', 'https://mediaindonesia.com', 'https://mediaindonesia.com/rss/index.php', 'rss', ARRAY['politik','bisnis'], 8.5, 60),
+  ('JPNN', 'https://www.jpnn.com', 'https://www.jpnn.com/rss/', 'rss', ARRAY['politik','hukum'], 7.8, 60),
+  ('Setkab.go.id', 'https://setkab.go.id', NULL, 'scrape', ARRAY['politik'], 9.2, 360),
+  ('DPR RI', 'https://dpr.go.id', NULL, 'scrape', ARRAY['politik','hukum'], 9.0, 360),
+
+  -- ── Teknologi tambahan ────────────────────────────────────────────────────
+  ('The Verge', 'https://www.theverge.com', 'https://www.theverge.com/rss/index.xml', 'rss', ARRAY['teknologi'], 8.8, 30),
+  ('TechCrunch', 'https://techcrunch.com', 'https://techcrunch.com/feed/', 'rss', ARRAY['teknologi','bisnis'], 8.9, 30),
+  ('Detik Inet', 'https://inet.detik.com', 'https://rss.detik.com/index.php/detikinet', 'rss', ARRAY['teknologi'], 8.3, 30),
+  ('MIT Technology Review', 'https://www.technologyreview.com', 'https://www.technologyreview.com/feed/', 'rss', ARRAY['teknologi','sains'], 9.2, 60),
+  ('Wired', 'https://www.wired.com', 'https://www.wired.com/feed/rss', 'rss', ARRAY['teknologi'], 8.7, 60),
+
+  -- ── Bisnis tambahan ───────────────────────────────────────────────────────
+  ('Bloomberg', 'https://www.bloomberg.com', 'https://feeds.bloomberg.com/markets/news.rss', 'rss', ARRAY['bisnis'], 9.5, 30),
+  ('Bank Indonesia', 'https://www.bi.go.id', NULL, 'scrape', ARRAY['bisnis'], 9.5, 360),
+  ('BPS Indonesia', 'https://www.bps.go.id', NULL, 'scrape', ARRAY['bisnis'], 9.3, 360),
+  ('Fortune Indonesia', 'https://fortuneindonesia.com', 'https://fortuneindonesia.com/feed/', 'rss', ARRAY['bisnis'], 8.0, 60),
+
+  -- ── Kesehatan tambahan ────────────────────────────────────────────────────
+  ('Halodoc', 'https://www.halodoc.com', NULL, 'scrape', ARRAY['kesehatan'], 8.6, 120),
+  ('Klikdokter', 'https://www.klikdokter.com', 'https://www.klikdokter.com/feed/', 'rss', ARRAY['kesehatan'], 8.4, 120),
+  ('Kemenkes RI', 'https://www.kemkes.go.id', NULL, 'scrape', ARRAY['kesehatan'], 9.3, 360),
+  ('CDC', 'https://www.cdc.gov', 'https://tools.cdc.gov/api/v2/resources/media/132608.rss', 'rss', ARRAY['kesehatan'], 9.5, 120),
+  ('Mayo Clinic', 'https://www.mayoclinic.org', NULL, 'scrape', ARRAY['kesehatan'], 9.0, 360),
+
+  -- ── Hukum tambahan ───────────────────────────────────────────────────────
+  ('Mahkamah Agung', 'https://mahkamahagung.go.id', NULL, 'scrape', ARRAY['hukum'], 9.5, 360),
+  ('MK RI', 'https://mkri.id', NULL, 'scrape', ARRAY['hukum'], 9.3, 360),
+
+  -- ── Akademik tambahan ─────────────────────────────────────────────────────
+  ('BRIN Repository', 'https://repository.brin.go.id', NULL, 'scrape', ARRAY['akademik','sains'], 8.8, 360),
+  ('Google Scholar', 'https://scholar.google.com', NULL, 'scrape', ARRAY['akademik'], 9.0, 360),
+
+  -- ── Sains & Lingkungan ───────────────────────────────────────────────────
+  ('Nature', 'https://www.nature.com', 'https://www.nature.com/nature.rss', 'rss', ARRAY['sains','akademik'], 9.8, 60),
+  ('Science Daily', 'https://www.sciencedaily.com', 'https://www.sciencedaily.com/rss/all.xml', 'rss', ARRAY['sains'], 8.5, 60),
+  ('BRIN', 'https://www.brin.go.id', NULL, 'scrape', ARRAY['sains','akademik'], 8.8, 360),
+  ('LAPAN / BRIN Dirgantara', 'https://lapan.go.id', NULL, 'scrape', ARRAY['sains'], 8.5, 360),
+  ('BMKG', 'https://www.bmkg.go.id', 'https://www.bmkg.go.id/rss/', 'rss', ARRAY['sains'], 9.0, 120),
+  ('National Geographic Indonesia', 'https://nationalgeographic.grid.id', 'https://nationalgeographic.grid.id/rss/', 'rss', ARRAY['sains','olahraga'], 8.3, 120),
+
+  -- ── Olahraga tambahan ────────────────────────────────────────────────────
+  ('ESPN', 'https://espn.com', 'https://www.espn.com/espn/rss/news', 'rss', ARRAY['olahraga'], 9.0, 30),
+  ('BBC Sport', 'https://www.bbc.com/sport', 'https://feeds.bbci.co.uk/sport/rss.xml', 'rss', ARRAY['olahraga'], 9.3, 30),
+  ('PSSI', 'https://pssi.org', NULL, 'scrape', ARRAY['olahraga'], 8.5, 360),
+  ('Bola.net', 'https://bola.net', 'https://bola.net/feed/', 'rss', ARRAY['olahraga'], 8.0, 30),
+
+  -- ── Berita Internasional ─────────────────────────────────────────────────
+  ('Reuters', 'https://www.reuters.com', 'https://feeds.reuters.com/reuters/topNews', 'rss', ARRAY['internasional','bisnis'], 9.7, 15),
+  ('AP News', 'https://apnews.com', 'https://rsshub.app/apnews/topics/apf-topnews', 'rss', ARRAY['internasional'], 9.6, 15),
+  ('BBC Indonesia', 'https://www.bbc.com/indonesia', 'https://feeds.bbci.co.uk/indonesian/rss.xml', 'rss', ARRAY['internasional','politik'], 9.5, 30),
+  ('VOA Indonesia', 'https://www.voaindonesia.com', 'https://www.voaindonesia.com/api/zmgqmeso_', 'rss', ARRAY['internasional'], 9.0, 30),
+  ('DW Indonesia', 'https://www.dw.com/id', 'https://rss.dw.com/xml/rss-id-all', 'rss', ARRAY['internasional'], 8.8, 30),
+  ('Al Jazeera Indonesia', 'https://www.aljazeera.com/indonesia', NULL, 'scrape', ARRAY['internasional'], 8.5, 60)
 ) AS v(name, url, rss_url, type, categories, credibility_score, fetch_interval_minutes)
 WHERE NOT EXISTS (SELECT 1 FROM sources WHERE sources.url = v.url);
 `;

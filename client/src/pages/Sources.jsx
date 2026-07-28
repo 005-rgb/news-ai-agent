@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { sources as sourcesApi } from '../lib/api';
 
-const CATEGORIES = ['politik','bisnis','teknologi','kesehatan','akademik','lifestyle','olahraga','hukum'];
+const CATEGORIES = ['politik','bisnis','teknologi','kesehatan','akademik','sains','olahraga','hukum','internasional','lifestyle'];
 const TYPES = ['rss','api','scrape'];
 
 export default function Sources() {

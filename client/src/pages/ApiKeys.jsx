@@ -20,6 +20,7 @@ const STATUS_STYLES = {
   critical:  'bg-orange-100 text-orange-700 ring-1 ring-orange-200',
   exhausted: 'bg-red-100 text-red-700 ring-1 ring-red-200',
   paused:    'bg-gray-100 text-gray-600 ring-1 ring-gray-200',
+  degraded:  'bg-purple-100 text-purple-700 ring-1 ring-purple-200',
 };
 
 const ALERT_STYLES = {
