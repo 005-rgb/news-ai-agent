@@ -9,6 +9,12 @@ const { query } = require('../db');
 const { decrypt } = require('../utils/encryption');
 const logger = require('../utils/logger');
 const config = require('../config');
+const { PROVIDERS: PROVIDER_DEFS } = require('../config/providers');
+
+// Providers yang reset setiap rolling 24h sejak pemakaian terakhir
+const ROLLING_24H_PROVIDERS  = ['groq', 'openrouter', 'together', 'cerebras'];
+// Providers yang reset tepat midnight UTC setiap hari
+const MIDNIGHT_UTC_PROVIDERS = ['gemini', 'deepseek', 'mistral', 'cohere'];
 
 const DEFAULT_FALLBACK_CHAIN = [
   'gemini','groq','deepseek','openrouter','mistral','together','cerebras','cohere',
@@ -125,15 +131,22 @@ async function selectBestKey(options = {}) {
 
 async function recordUsage(keyId, tokensUsed = 0) {
   const { rows } = await query(
+    // reset_at diperbarui per-provider:
+    //   rolling_24h  → NOW() + 24h (setiap kali key dipakai quota-window bergeser)
+    //   midnight_utc → tidak berubah (sudah di-set ke midnight UTC berikutnya saat create/reset)
     `UPDATE api_keys
      SET usage_today      = usage_today + 1,
          usage_this_month = usage_this_month + 1,
          last_used_at     = NOW(),
-         error_count      = 0
+         error_count      = 0,
+         reset_at = CASE
+           WHEN provider = ANY($2) THEN NOW() + INTERVAL '24 hours'
+           ELSE reset_at
+         END
      WHERE id = $1
      RETURNING id, provider, label, usage_today, daily_limit,
                usage_this_month, monthly_limit, status`,
-    [keyId]
+    [keyId, ROLLING_24H_PROVIDERS]
   );
   if (!rows.length) return;
 
@@ -186,18 +199,49 @@ async function recordError(keyId, errorMessage) {
 }
 
 // ── resetDailyUsage ───────────────────────────────────────────────────────────
-// Called by cron at midnight WIB
+// Dipanggil cron setiap tengah malam WIB (17:00 UTC).
+// Hanya me-reset midnight_utc providers (gemini, deepseek, mistral, cohere).
+// Rolling_24h providers (groq, openrouter, together, cerebras) di-reset oleh
+// resetExpiredRollingKeys() yang jalan tiap 5 menit berdasarkan reset_at per-key.
 
 async function resetDailyUsage() {
+  // Hitung reset_at berikutnya = midnight UTC hari berikutnya
+  const nextMidnightUTC = new Date();
+  nextMidnightUTC.setUTCHours(24, 0, 0, 0);
+
   const { rowCount } = await query(
     `UPDATE api_keys
      SET usage_today = 0,
-         status = 'active',
-         reset_at = NOW() + INTERVAL '1 day'
+         status      = 'active',
+         reset_at    = $1
      WHERE status IN ('warning','critical','exhausted')
-       AND provider != '_config'`
+       AND provider = ANY($2)`,
+    [nextMidnightUTC.toISOString(), MIDNIGHT_UTC_PROVIDERS]
   );
-  await logger.info('KeyPool', `Daily usage reset — ${rowCount} keys restored to active`);
+  await logger.info('KeyPool', `Daily usage reset — ${rowCount} midnight_utc keys restored to active`);
+}
+
+// ── resetExpiredRollingKeys ───────────────────────────────────────────────────
+// Dipanggil cron setiap 5 menit.
+// Reset rolling_24h providers yang reset_at-nya sudah lewat.
+
+async function resetExpiredRollingKeys() {
+  const { rowCount } = await query(
+    `UPDATE api_keys
+     SET usage_today = 0,
+         status      = 'active',
+         reset_at    = NOW() + INTERVAL '24 hours'
+     WHERE status IN ('warning','critical','exhausted')
+       AND provider = ANY($1)
+       AND reset_at IS NOT NULL
+       AND reset_at <= NOW()`,
+    [ROLLING_24H_PROVIDERS]
+  );
+  if (rowCount > 0) {
+    await logger.info('KeyPool',
+      `Rolling reset — ${rowCount} rolling_24h keys restored to active`);
+  }
+  return rowCount;
 }
 
 // ── resetMonthlyUsage ─────────────────────────────────────────────────────────
@@ -239,8 +283,11 @@ module.exports = {
   recordUsage,
   recordError,
   resetDailyUsage,
+  resetExpiredRollingKeys,
   resetMonthlyUsage,
   getPoolStatus,
   calcFreshnessScore,
   KeyPoolExhaustedError,
+  ROLLING_24H_PROVIDERS,
+  MIDNIGHT_UTC_PROVIDERS,
 };

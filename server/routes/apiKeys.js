@@ -219,8 +219,16 @@ router.post('/', async (req, res, next) => {
     const defaults = PROVIDER_DEFAULTS[provider] || { daily: 1000, monthly: 30000 };
     const encKey   = encrypt(key_value);
 
-    // Auto-set reset_at if not provided — midnight UTC tomorrow
+    // Auto-set reset_at berdasarkan provider reset logic:
+    //   midnight_utc  → midnight UTC hari berikutnya
+    //   rolling_24h   → NOW() + 24h (quota-window dimulai saat key pertama kali dibuat)
     const autoResetAt = reset_at || (() => {
+      const { PROVIDERS: PDEFS } = require('../config/providers');
+      const resetLogic = PDEFS[provider]?.resetLogic || 'midnight_utc';
+      if (resetLogic === 'rolling_24h') {
+        return new Date(Date.now() + 24 * 3_600_000).toISOString();
+      }
+      // midnight_utc
       const d = new Date();
       d.setUTCHours(24, 0, 0, 0);
       return d.toISOString();

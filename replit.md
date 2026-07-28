@@ -25,7 +25,11 @@ The workflow `Start application` runs `npm run build && node server/index.js`.
 | Phase | Name | Status |
 |-------|------|--------|
 | 0 | Foundation & Infrastructure | ✅ Done |
-| 1 | API Key Pool Manager | ✅ Done |
+| 1.1 | Key CRUD API | ✅ Done |
+| 1.2 | Usage Tracker | ✅ Done |
+| 1.3 | Smart Rotation Engine | ✅ Done |
+| 1.4 | LLM Router | ✅ Done |
+| 1.5 | Alert System | ✅ Done |
 | 2 | Source Intelligence | 🔜 Next |
 | 3–11 | Pipeline, Publishing, Dashboard… | 🔜 Planned |
 

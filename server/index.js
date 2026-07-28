@@ -199,6 +199,16 @@ function startCronJobs() {
     }
   }, { timezone: 'UTC' });
 
+  // Rolling-24h provider reset — cek setiap 5 menit apakah ada key yang reset_at-nya sudah lewat
+  // Groq, OpenRouter, Together AI, Cerebras: quota-window bergeser 24h dari pemakaian terakhir
+  cron.schedule('*/5 * * * *', async () => {
+    try {
+      await keyPool.resetExpiredRollingKeys();
+    } catch (err) {
+      console.error('[Cron] Rolling reset error:', err.message);
+    }
+  }, { timezone: 'UTC' });
+
   // Log cleanup every day at 02:00 UTC — remove system_logs > 30 days
   cron.schedule('0 2 * * *', async () => {
     try {
@@ -213,7 +223,7 @@ function startCronJobs() {
     }
   }, { timezone: 'UTC' });
 
-  console.log('[Cron] Jobs scheduled: daily-reset, monthly-reset, stats-snapshot, log-cleanup');
+  console.log('[Cron] Jobs scheduled: daily-reset, rolling-reset(5min), monthly-reset, stats-snapshot, log-cleanup');
 }
 
 // ── Boot ──────────────────────────────────────────────────────────────────────
