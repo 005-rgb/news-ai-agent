@@ -97,26 +97,12 @@ router.delete('/:id', async (req, res, next) => {
 // POST /api/v1/queue/run — force run pipeline for a topic
 router.post('/run', async (req, res, next) => {
   try {
-    const { topic, site_id, category, format } = req.body;
+    const { topic, site_id, category, format, priority } = req.body;
     if (!topic || !site_id) {
       return res.status(400).json({ success: false, error: { code: 'MISSING_FIELDS', message: 'topic and site_id are required' } });
     }
-
-    // Create article record
-    const articleId = uuidv4();
-    await query(
-      `INSERT INTO articles (id, site_id, title, status, format, category, created_at)
-       VALUES ($1,$2,$3,'researching',$4,$5,NOW())`,
-      [articleId, site_id, topic, format || 'berita_singkat', category || 'umum']
-    );
-
-    // Enqueue research job
-    await query(
-      `INSERT INTO job_queue (id, article_id, job_type, status, priority, payload, scheduled_at)
-       VALUES ($1,$2,'RESEARCH','pending','high',$3,NOW())`,
-      [uuidv4(), articleId, JSON.stringify({ topic, site_id, category, format })]
-    );
-
+    const { runPipeline } = require('../services/pipeline');
+    const articleId = await runPipeline({ topic, siteId: site_id, category, format, priority });
     res.status(201).json({ success: true, data: { articleId, message: 'Pipeline started' } });
   } catch (err) { next(err); }
 });

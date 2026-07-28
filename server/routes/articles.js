@@ -94,15 +94,9 @@ router.post('/:id/regenerate', async (req, res, next) => {
     if (!from_step || !validSteps.includes(from_step)) {
       return res.status(400).json({ success: false, error: { code: 'INVALID_STEP', message: `from_step must be one of: ${validSteps.join(', ')}` } });
     }
-    const { rows } = await query('SELECT * FROM articles WHERE id = $1', [req.params.id]);
-    if (!rows.length) return res.status(404).json({ success: false, error: { code: 'NOT_FOUND', message: 'Article not found' } });
-
-    await query(
-      `INSERT INTO job_queue (id, article_id, job_type, status, priority, payload, scheduled_at)
-       VALUES ($1, $2, $3, 'pending', 'high', $4, NOW())`,
-      [uuidv4(), req.params.id, from_step, JSON.stringify({ regenerate: true })]
-    );
-    res.json({ success: true, data: { message: `Regeneration from ${from_step} queued` } });
+    const { triggerStep } = require('../services/pipeline');
+    const job = await triggerStep(req.params.id, from_step);
+    res.json({ success: true, data: { message: `Regeneration from ${from_step} queued`, jobId: job.id } });
   } catch (err) { next(err); }
 });
 

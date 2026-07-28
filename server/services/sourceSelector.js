@@ -22,7 +22,7 @@ const logger = require('../utils/logger');
 
 const { fetchRSS } = require('./fetchers/rss');
 const { fetchAcademic } = require('./fetchers/academic');
-const { scrapeUrl } = require('./fetchers/scraper');
+const { scrapeSource } = require('./fetchers/scraper');
 
 // ── selectSources ─────────────────────────────────────────────────────────────
 
@@ -107,10 +107,12 @@ async function fetchFromSource(source, searchQuery = '') {
     if (type === 'api') {
       // Map source URL to the correct academic provider
       let provider;
-      if (url.includes('pubmed') || url.includes('ncbi'))    provider = 'pubmed';
-      else if (url.includes('arxiv'))                         provider = 'arxiv';
-      else if (url.includes('semanticscholar'))               provider = 'semantic_scholar';
-      else if (url.includes('doaj'))                          provider = 'doaj';
+      if (url.includes('pubmed') || url.includes('ncbi'))       provider = 'pubmed';
+      else if (url.includes('arxiv'))                            provider = 'arxiv';
+      else if (url.includes('semanticscholar'))                  provider = 'semantic_scholar';
+      else if (url.includes('scholar.google'))                   provider = 'google_scholar';
+      else if (url.includes('sinta.kemdikbud') || url.includes('sinta.ristekbrin')) provider = 'sinta';
+      else if (url.includes('doaj'))                             provider = 'doaj';
       else {
         await logger.warn('SourceSelector', `Unknown API source: ${name}`, { url });
         return [];
@@ -119,7 +121,7 @@ async function fetchFromSource(source, searchQuery = '') {
     }
 
     if (type === 'scrape') {
-      return await scrapeUrl(url, source.css_selectors || {});
+      return await scrapeSource(url, source.css_selectors || {});
     }
 
     await logger.warn('SourceSelector', `Unknown source type: ${type} for "${name}"`, { url });

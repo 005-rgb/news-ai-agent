@@ -3,12 +3,14 @@ import { sources as sourcesApi } from '../lib/api';
 
 const CATEGORIES = ['politik','bisnis','teknologi','kesehatan','akademik','sains','olahraga','hukum','internasional','lifestyle'];
 const TYPES = ['rss','api','scrape'];
+const EMPTY_FORM = { name:'', url:'', rss_url:'', type:'rss', categories:[], credibility_score:8.0, fetch_interval_minutes:30 };
 
 export default function Sources() {
   const [list, setList] = useState([]);
   const [filter, setFilter] = useState('');
   const [showForm, setShowForm] = useState(false);
-  const [form, setForm] = useState({ name:'', url:'', rss_url:'', type:'rss', categories:[], credibility_score:8.0, fetch_interval_minutes:30 });
+  const [editingId, setEditingId] = useState(null);
+  const [form, setForm] = useState(EMPTY_FORM);
   const [testing, setTesting] = useState(null);
   const [testResult, setTestResult] = useState({});
 
@@ -19,10 +21,40 @@ export default function Sources() {
 
   useEffect(() => { load(); }, [filter]);
 
-  const handleAdd = async (e) => {
-    e.preventDefault();
-    await sourcesApi.create(form);
+  const openAddForm = () => {
+    setEditingId(null);
+    setForm(EMPTY_FORM);
+    setShowForm(true);
+  };
+
+  const openEditForm = (s) => {
+    setEditingId(s.id);
+    setForm({
+      name: s.name || '',
+      url: s.url || '',
+      rss_url: s.rss_url || '',
+      type: s.type || 'rss',
+      categories: s.categories || [],
+      credibility_score: s.credibility_score ?? 8.0,
+      fetch_interval_minutes: s.fetch_interval_minutes ?? 30,
+    });
+    setShowForm(true);
+  };
+
+  const closeForm = () => {
     setShowForm(false);
+    setEditingId(null);
+    setForm(EMPTY_FORM);
+  };
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    if (editingId) {
+      await sourcesApi.update(editingId, form);
+    } else {
+      await sourcesApi.create(form);
+    }
+    closeForm();
     load();
   };
 
@@ -57,13 +89,13 @@ export default function Sources() {
             <option value="">Semua Kategori</option>
             {CATEGORIES.map(c=><option key={c} value={c}>{c}</option>)}
           </select>
-          <button onClick={() => setShowForm(s=>!s)} className="bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium px-4 py-2 rounded-lg">+ Tambah</button>
+          <button onClick={openAddForm} className="bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium px-4 py-2 rounded-lg">+ Tambah</button>
         </div>
       </div>
 
       {showForm && (
-        <form onSubmit={handleAdd} className="bg-white rounded-xl border border-gray-200 p-6 mb-6">
-          <h3 className="font-semibold text-gray-800 mb-4">Tambah Sumber Baru</h3>
+        <form onSubmit={handleSubmit} className="bg-white rounded-xl border border-gray-200 p-6 mb-6">
+          <h3 className="font-semibold text-gray-800 mb-4">{editingId ? 'Edit Sumber' : 'Tambah Sumber Baru'}</h3>
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div><label className="text-xs font-medium text-gray-600 block mb-1">Nama *</label><input value={form.name} onChange={e=>setForm(f=>({...f,name:e.target.value}))} required className="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" /></div>
             <div><label className="text-xs font-medium text-gray-600 block mb-1">URL *</label><input value={form.url} onChange={e=>setForm(f=>({...f,url:e.target.value}))} required className="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" /></div>
@@ -85,8 +117,8 @@ export default function Sources() {
             </div>
           </div>
           <div className="flex gap-2 mt-4">
-            <button type="submit" className="bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium px-4 py-2 rounded-lg">Simpan</button>
-            <button type="button" onClick={() => setShowForm(false)} className="bg-gray-100 hover:bg-gray-200 text-gray-700 text-sm px-4 py-2 rounded-lg">Batal</button>
+            <button type="submit" className="bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium px-4 py-2 rounded-lg">{editingId ? 'Update' : 'Simpan'}</button>
+            <button type="button" onClick={closeForm} className="bg-gray-100 hover:bg-gray-200 text-gray-700 text-sm px-4 py-2 rounded-lg">Batal</button>
           </div>
         </form>
       )}
@@ -116,6 +148,7 @@ export default function Sources() {
                     <td className="px-3 py-3">
                       <div className="flex gap-2">
                         <button onClick={()=>handleTest(s.id)} disabled={testing===s.id} className="text-blue-600 hover:text-blue-800 text-xs">{testing===s.id?'...':'Test'}</button>
+                        <button onClick={()=>openEditForm(s)} className="text-indigo-600 hover:text-indigo-800 text-xs">Edit</button>
                         <button onClick={()=>handleToggle(s.id)} className="text-yellow-600 hover:text-yellow-800 text-xs">{s.is_active?'Pause':'Aktif'}</button>
                         <button onClick={()=>handleDelete(s.id)} className="text-red-500 hover:text-red-700 text-xs">Hapus</button>
                       </div>
