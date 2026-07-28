@@ -18,8 +18,22 @@ const PROVIDERS = {
     defaultModel: 'gemini-1.5-flash',
     async call(keyValue, prompt, model, maxTokens, temperature) {
       const genAI = new GoogleGenerativeAI(keyValue);
-      const m = genAI.getGenerativeModel({ model: model || 'gemini-1.5-flash' });
-      const result = await m.generateContent(prompt);
+      const m = genAI.getGenerativeModel({
+        model: model || 'gemini-1.5-flash',
+        generationConfig: { maxOutputTokens: maxTokens, temperature },
+      });
+
+      // Google AI SDK tidak support timeout native — race dengan manual timer
+      const timeoutMs = config.llmTimeout || 60_000;
+      const timeoutErr = Object.assign(
+        new Error(`Gemini request timed out after ${timeoutMs}ms`),
+        { code: 'ECONNABORTED' }
+      );
+      const result = await Promise.race([
+        m.generateContent(prompt),
+        new Promise((_, reject) => setTimeout(() => reject(timeoutErr), timeoutMs)),
+      ]);
+
       const text = result.response.text();
       const usage = result.response.usageMetadata;
       return {
