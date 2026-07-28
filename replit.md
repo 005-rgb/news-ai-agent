@@ -30,8 +30,9 @@ The workflow `Start application` runs `npm run build && node server/index.js`.
 | 1.3 | Smart Rotation Engine | ✅ Done |
 | 1.4 | LLM Router | ✅ Done |
 | 1.5 | Alert System | ✅ Done |
-| 2 | Source Intelligence | 🔜 Next |
-| 3–11 | Pipeline, Publishing, Dashboard… | 🔜 Planned |
+| 2 | Source Intelligence (68 sources) | ✅ Done |
+| 3 | Content Pipeline Core | ✅ Done |
+| 4–11 | Writing Standards, Publisher, Dashboard… | 🔜 Planned |
 
 ## Login
 

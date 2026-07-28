@@ -127,12 +127,14 @@ class WriterAgent extends BaseAgent {
     const maxTokens = Math.min(Math.round(target.max * 1.5), 4000);
 
     let rawText;
+    let providerUsed = null;
     try {
       const llmResult = await this.retry(
         () => this.callLLM(prompt, { maxTokens, temperature: 0.75 }),
         2
       );
       rawText = llmResult.text;
+      providerUsed = llmResult.provider || null;
     } catch (err) {
       await this.log('error', `LLM call failed for writer: ${err.message}`, { articleId });
       throw err;
@@ -159,9 +161,11 @@ class WriterAgent extends BaseAgent {
     };
 
     // ── Step 6: Simpan dan enqueue EDIT ───────────────────────────────────
+    // Save to content_versions (full structured data) AND content (plain text for quick display)
     await query(
-      `UPDATE articles SET content_versions = $1, title = $2, status = 'editing' WHERE id = $3`,
-      [JSON.stringify(draft), parsed.title, articleId]
+      `UPDATE articles SET content_versions = $1, title = $2, content = $3,
+       provider_used = COALESCE($4, provider_used), status = 'editing' WHERE id = $5`,
+      [JSON.stringify(draft), parsed.title, parsed.content, providerUsed, articleId]
     );
 
     await enqueueJob('EDIT', articleId, { draft, brief, siteId, format, revisionCount: 0 }, 'normal');
