@@ -23,6 +23,17 @@ function textToHtml(text) {
   // Blockquote
   html = html.replace(/^> (.+)$/gm, '<blockquote><p>$1</p></blockquote>');
 
+  // Inline images: ![alt text](url) or ![alt text](url "caption")
+  html = html.replace(/!\[([^\]]*)\]\(([^)\s"]+)(?:\s+"([^"]*)")?\)/g, (_, alt, url, caption) => {
+    const figcaption = caption || alt ? `\n<figcaption>${caption || alt}</figcaption>` : '';
+    return `<figure>\n<img src="${url}" alt="${alt || ''}" loading="lazy" />${figcaption}\n</figure>`;
+  });
+
+  // [GAMBAR: description] placeholder → figure with class
+  html = html.replace(/\[GAMBAR:\s*([^\]]+)\]/gi, (_, desc) => {
+    return `<figure class="news-ai-image-placeholder">\n<img src="" alt="${desc.trim()}" data-placeholder="${desc.trim()}" loading="lazy" />\n<figcaption>${desc.trim()}</figcaption>\n</figure>`;
+  });
+
   // Ordered list
   html = html.replace(/^\d+\. (.+)$/gm, '<li>$1</li>');
   html = html.replace(/(<li>.*<\/li>\n?)+/g, (match) => `<ol>${match}</ol>`);

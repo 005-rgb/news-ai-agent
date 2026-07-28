@@ -6,20 +6,22 @@
  * Output: { published: bool, wordpressPostId, wordpressUrl }
  *
  * Pipeline:
- *  1. Ambil artikel + config site dari DB
+ *  1. Load artikel + site config dari DB
  *  2. Build HTML WordPress-ready via seoFormatter
  *  3. Upload featured image ke WP Media Library
+ *     - Handle: base64 data (Imagen 3), URL download (DALL-E / Unsplash / Pexels / placeholder)
  *  4. Get/create kategori WordPress
  *  5. Get/create tags WordPress
- *  6. POST /wp/v2/posts dengan semua metadata (Yoast SEO fields)
- *  7. Simpan wordpress_post_id, wordpress_url ke DB
- *  8. Status → 'published'
+ *  6. Append internal links ("Baca Juga") sebelum schema
+ *  7. Append external source links ("Referensi") dari brief
+ *  8. POST /wp/v2/posts dengan Yoast SEO fields
+ *  9. Simpan wordpress_post_id, wordpress_url, status → published
  *
  * Error handling:
- *  - 401: alert + pause site, log critical
- *  - 429: retry 3x dengan delay eksponensial
- *  - 5xx: retry 3x, lalu dead letter
- *  - No WP config: tandai sebagai 'ready_to_publish' untuk manual
+ *  - No WP config    → status ready_to_publish (graceful)
+ *  - 401/403         → pause site + mark failed
+ *  - 429             → tunggu Retry-After + retry
+ *  - 5xx / network   → retry 3x exponential, lalu dead letter
  */
 
 const BaseAgent = require('./base');
@@ -37,7 +39,7 @@ class PublisherAgent extends BaseAgent {
   async run(articleId, payload) {
     const { siteId, scheduledAt } = payload;
 
-    // ── Load artikel ──────────────────────────────────────────────────────
+    // ── Load artikel + site ───────────────────────────────────────────────
     const { rows: artRows } = await query(
       `SELECT a.*, s.wordpress_api_url, s.wordpress_username, s.wordpress_app_password_enc,
               s.name AS site_name, s.url AS site_url, s.categories AS site_categories
@@ -48,19 +50,15 @@ class PublisherAgent extends BaseAgent {
     );
     if (!artRows.length) throw new Error(`Article ${articleId} not found`);
     const article = artRows[0];
-
     const effectiveSiteId = siteId || article.site_id;
 
-    await this.log('info', `Publishing artikel: "${article.title}"`, { articleId });
+    await this.log('info', `Publishing: "${article.title}"`, { articleId });
     await query(`UPDATE articles SET status = 'publishing' WHERE id = $1`, [articleId]);
 
-    // ── Cek apakah WP dikonfigurasi ───────────────────────────────────────
+    // ── Cek WP config ─────────────────────────────────────────────────────
     if (!article.wordpress_api_url || !article.wordpress_username || !article.wordpress_app_password_enc) {
-      await this.log('warn', `Site tidak punya konfigurasi WordPress — tandai ready_to_publish`, { articleId });
-      await query(
-        `UPDATE articles SET status = 'ready_to_publish', last_updated_at = NOW() WHERE id = $1`,
-        [articleId]
-      );
+      await this.log('warn', `Site tidak punya konfigurasi WordPress — status: ready_to_publish`, { articleId });
+      await query(`UPDATE articles SET status = 'ready_to_publish', last_updated_at = NOW() WHERE id = $1`, [articleId]);
       return { published: false, reason: 'no_wp_config' };
     }
 
@@ -75,75 +73,67 @@ class PublisherAgent extends BaseAgent {
     const wpApiUrl = article.wordpress_api_url.replace(/\/$/, '');
     const credentials = Buffer.from(`${article.wordpress_username}:${wpPassword}`).toString('base64');
     const authHeader = `Basic ${credentials}`;
+    const siteConfig = { name: article.site_name, url: article.site_url };
 
-    const siteConfig = {
-      name: article.site_name,
-      url: article.site_url,
-    };
+    // ── Build HTML ────────────────────────────────────────────────────────
+    let wpHtml = buildWordPressHtml(article, siteConfig);
 
-    // ── Build WordPress HTML ──────────────────────────────────────────────
-    const wpHtml = buildWordPressHtml(article, siteConfig);
+    // ── Tambahkan internal links + external links ─────────────────────────
+    const seoData = typeof article.seo_data === 'string'
+      ? JSON.parse(article.seo_data || '{}')
+      : (article.seo_data || {});
+    const brief = typeof article.brief_data === 'string'
+      ? JSON.parse(article.brief_data || '{}')
+      : (article.brief_data || {});
 
-    // ── Tambahkan internal links section ──────────────────────────────────
-    const seoData = article.seo_data || {};
-    const internalLinks = Array.isArray(seoData.internalLinks) ? seoData.internalLinks : [];
-    const htmlWithLinks = this.appendInternalLinks(wpHtml, internalLinks);
+    wpHtml = this.appendRelatedSection(wpHtml, seoData.internalLinks || [], seoData.externalLinks || [], brief);
 
     // ── Upload featured image ─────────────────────────────────────────────
     let featuredMediaId = null;
-    const imageData = article.image_data || {};
+    const imageData = typeof article.image_data === 'string'
+      ? JSON.parse(article.image_data || '{}')
+      : (article.image_data || {});
     const featuredImage = imageData.featured;
 
-    if (featuredImage && featuredImage.url && featuredImage.source !== 'placeholder') {
+    if (featuredImage && featuredImage.source !== 'placeholder') {
       try {
-        featuredMediaId = await this.uploadFeaturedImage(
-          wpApiUrl, authHeader, featuredImage, article.title, seoData
-        );
+        featuredMediaId = await this.uploadFeaturedImage(wpApiUrl, authHeader, featuredImage, article.title, seoData);
       } catch (e) {
         await this.log('warn', `Upload gambar gagal: ${e.message} — publish tanpa featured image`, { articleId });
       }
     }
 
-    // ── Get/create kategori ───────────────────────────────────────────────
-    const categoryIds = await this.getOrCreateCategories(
-      wpApiUrl, authHeader, article.category, article.site_categories
-    );
+    // ── Kategori & tags ───────────────────────────────────────────────────
+    const categoryIds = await this.getOrCreateCategories(wpApiUrl, authHeader, article.category, article.site_categories);
+    const tagIds = await this.getOrCreateTags(wpApiUrl, authHeader, article.tags || []);
 
-    // ── Get/create tags ───────────────────────────────────────────────────
-    const tagIds = await this.getOrCreateTags(
-      wpApiUrl, authHeader, article.tags || []
-    );
-
-    // ── Tentukan status dan tanggal publish ───────────────────────────────
+    // ── Status dan tanggal publish ────────────────────────────────────────
     const wpStatus = scheduledAt ? 'future' : 'publish';
     const publishDate = scheduledAt ? new Date(scheduledAt).toISOString() : new Date().toISOString();
 
-    // ── Build post payload ────────────────────────────────────────────────
+    // ── Post payload ──────────────────────────────────────────────────────
     const postPayload = {
-      title: article.title || '',
-      content: htmlWithLinks,
-      status: wpStatus,
-      date: publishDate,
+      title:      article.title || '',
+      content:    wpHtml,
+      status:     wpStatus,
+      date:       publishDate,
       categories: categoryIds,
-      tags: tagIds,
+      tags:       tagIds,
       ...(featuredMediaId ? { featured_media: featuredMediaId } : {}),
-      // Yoast SEO fields (supported if Yoast plugin active)
+      ...(seoData.slug    ? { slug: seoData.slug }             : {}),
       meta: {
-        _yoast_wpseo_title: seoData.metaTitle || article.title || '',
+        _yoast_wpseo_title:    seoData.metaTitle       || article.title || '',
         _yoast_wpseo_metadesc: seoData.metaDescription || '',
-        _yoast_wpseo_focuskw: seoData.focusKeyword || '',
+        _yoast_wpseo_focuskw:  seoData.focusKeyword    || '',
       },
-      // Slug
-      ...(seoData.slug ? { slug: seoData.slug } : {}),
     };
 
-    // ── POST ke WordPress ─────────────────────────────────────────────────
+    // ── POST ke WordPress (retry 3x) ──────────────────────────────────────
     let wpPost;
     try {
       wpPost = await this.retry(
-        () => this.wpPost(`${wpApiUrl}/wp/v2/posts`, postPayload, authHeader, wpApiUrl),
-        3,
-        2000
+        () => this.wpRequest('POST', `${wpApiUrl}/wp/v2/posts`, postPayload, authHeader),
+        3, 2000
       );
     } catch (err) {
       await this.handleWpError(err, articleId, effectiveSiteId);
@@ -151,104 +141,97 @@ class PublisherAgent extends BaseAgent {
     }
 
     const wordpressPostId = wpPost.id;
-    const wordpressUrl = wpPost.link || wpPost.guid?.rendered || '';
+    const wordpressUrl    = wpPost.link || wpPost.guid?.rendered || '';
 
     // ── Update DB ─────────────────────────────────────────────────────────
     await query(
       `UPDATE articles
-       SET status = 'published',
-           wordpress_post_id = $1,
-           wordpress_url = $2,
-           published_at = NOW(),
-           last_updated_at = NOW()
+       SET status = 'published', wordpress_post_id = $1, wordpress_url = $2,
+           published_at = NOW(), last_updated_at = NOW()
        WHERE id = $3`,
       [wordpressPostId, wordpressUrl, articleId]
     );
 
-    await this.log('info', `✅ Artikel terbit di WordPress: ${wordpressUrl}`, { articleId, wordpressPostId, wordpressUrl });
-
+    await this.log('info', `✅ Terbit: ${wordpressUrl}`, { articleId, wordpressPostId, wordpressUrl });
     return { published: true, wordpressPostId, wordpressUrl };
   }
 
-  // ── Upload featured image ke WP Media Library ────────────────────────────
+  // ── Upload featured image ─────────────────────────────────────────────────
 
   async uploadFeaturedImage(wpApiUrl, authHeader, imageObj, articleTitle, seoData) {
-    // Download image bytes
-    const imgResp = await axios.get(imageObj.url, {
-      responseType: 'arraybuffer',
-      timeout: config.imageTimeout,
-      headers: { 'User-Agent': 'NewsAIAgent/1.0' },
-    });
+    let imageBuffer;
+    let mimeType = 'image/jpeg';
 
-    const contentType = imgResp.headers['content-type'] || 'image/jpeg';
-    const ext = contentType.includes('png') ? 'png' : contentType.includes('gif') ? 'gif' : 'jpg';
-    const slug = (seoData.slug || articleTitle || 'article').slice(0, 40).replace(/\s+/g, '-').toLowerCase();
+    if (imageObj.base64) {
+      // AI-generated image (Gemini Imagen 3) — already have bytes as base64
+      mimeType = imageObj.mimeType || 'image/png';
+      imageBuffer = Buffer.from(imageObj.base64, 'base64');
+    } else {
+      // URL-based image (DALL-E, Unsplash, Pexels, placeholder)
+      const imgUrl = imageObj.url;
+      if (!imgUrl || imgUrl.startsWith('data:')) {
+        // data: URL fallback (should not happen, but safety)
+        const b64match = imgUrl?.match(/^data:([^;]+);base64,(.+)$/);
+        if (!b64match) throw new Error('No valid image URL to download');
+        mimeType = b64match[1];
+        imageBuffer = Buffer.from(b64match[2], 'base64');
+      } else {
+        const imgResp = await axios.get(imgUrl, {
+          responseType: 'arraybuffer',
+          timeout: config.imageTimeout,
+          headers: { 'User-Agent': 'NewsAIAgent/1.0' },
+        });
+        const ct = imgResp.headers['content-type'] || 'image/jpeg';
+        mimeType = ct.split(';')[0].trim();
+        imageBuffer = Buffer.from(imgResp.data);
+      }
+    }
+
+    const ext   = mimeType.includes('png') ? 'png' : mimeType.includes('gif') ? 'gif' : 'jpg';
+    const slug  = (seoData.slug || articleTitle || 'article').slice(0, 40).replace(/\s+/g, '-').toLowerCase();
     const filename = `${slug}-featured.${ext}`;
 
-    const mediaResp = await axios.post(`${wpApiUrl}/wp/v2/media`, imgResp.data, {
-      headers: {
-        Authorization: authHeader,
-        'Content-Disposition': `attachment; filename="${filename}"`,
-        'Content-Type': contentType,
-      },
-      timeout: config.imageTimeout,
-    });
+    const mediaResp = await this.wpRequest(
+      'POST', `${wpApiUrl}/wp/v2/media`, imageBuffer,
+      authHeader, { 'Content-Disposition': `attachment; filename="${filename}"`, 'Content-Type': mimeType }
+    );
 
-    const mediaId = mediaResp.data?.id;
+    const mediaId = mediaResp?.id;
     if (!mediaId) throw new Error('WP media upload: no ID returned');
 
-    // Set alt text
+    // Set alt text (non-critical)
     if (imageObj.altText) {
-      await axios.post(`${wpApiUrl}/wp/v2/media/${mediaId}`, {
-        alt_text: imageObj.altText,
-        caption: imageObj.caption || '',
-      }, {
-        headers: { Authorization: authHeader, 'Content-Type': 'application/json' },
-        timeout: 10000,
-      }).catch(() => {}); // non-critical
+      await this.wpRequest('POST', `${wpApiUrl}/wp/v2/media/${mediaId}`,
+        { alt_text: imageObj.altText, caption: imageObj.caption || '' }, authHeader
+      ).catch(() => {});
     }
 
     return mediaId;
   }
 
-  // ── Get or create WordPress category ────────────────────────────────────
+  // ── Get or create WordPress categories ───────────────────────────────────
 
   async getOrCreateCategories(wpApiUrl, authHeader, category, siteCategories) {
-    const categoryNames = [];
-
-    // Map system category ke nama display Indonesia
     const categoryMap = {
       teknologi: 'Teknologi', bisnis: 'Bisnis', kesehatan: 'Kesehatan',
       pendidikan: 'Pendidikan', olahraga: 'Olahraga', politik: 'Politik',
-      hiburan: 'Hiburan', sains: 'Sains', umum: 'Umum', gaya_hidup: 'Gaya Hidup',
+      hiburan: 'Hiburan', sains: 'Sains', umum: 'Umum',
+      gaya_hidup: 'Gaya Hidup', akademik: 'Akademik',
     };
-    if (category) categoryNames.push(categoryMap[category] || category);
-    if (Array.isArray(siteCategories) && siteCategories.length) {
-      categoryNames.push(...siteCategories.slice(0, 2));
-    }
-    if (!categoryNames.length) categoryNames.push('Umum');
+    const names = [];
+    if (category) names.push(categoryMap[category] || category);
+    if (Array.isArray(siteCategories) && siteCategories.length) names.push(...siteCategories.slice(0, 2));
+    if (!names.length) names.push('Umum');
 
     const ids = [];
-    for (const name of [...new Set(categoryNames)]) {
+    for (const name of [...new Set(names)]) {
       try {
-        const slug = name.toLowerCase().replace(/\s+/g, '-');
-        // Search existing
-        const search = await axios.get(`${wpApiUrl}/wp/v2/categories`, {
-          params: { slug, per_page: 1 },
-          headers: { Authorization: authHeader },
-          timeout: 10000,
-        });
-        if (search.data && search.data.length) {
-          ids.push(search.data[0].id);
-        } else {
-          // Create new
-          const created = await axios.post(`${wpApiUrl}/wp/v2/categories`, { name, slug }, {
-            headers: { Authorization: authHeader, 'Content-Type': 'application/json' },
-            timeout: 10000,
-          });
-          if (created.data?.id) ids.push(created.data.id);
-        }
-      } catch { /* skip failed categories */ }
+        const slug = name.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '');
+        const found = await this.wpRequest('GET', `${wpApiUrl}/wp/v2/categories?slug=${slug}&per_page=1`, null, authHeader);
+        if (Array.isArray(found) && found.length) { ids.push(found[0].id); continue; }
+        const created = await this.wpRequest('POST', `${wpApiUrl}/wp/v2/categories`, { name, slug }, authHeader);
+        if (created?.id) ids.push(created.id);
+      } catch { /* skip */ }
     }
     return ids;
   }
@@ -262,98 +245,100 @@ class PublisherAgent extends BaseAgent {
       if (!name) continue;
       try {
         const slug = name.toLowerCase().replace(/\s+/g, '-').replace(/[^a-z0-9-]/g, '');
-        const search = await axios.get(`${wpApiUrl}/wp/v2/tags`, {
-          params: { slug, per_page: 1 },
-          headers: { Authorization: authHeader },
-          timeout: 8000,
-        });
-        if (search.data && search.data.length) {
-          ids.push(search.data[0].id);
-        } else {
-          const created = await axios.post(`${wpApiUrl}/wp/v2/tags`, { name, slug }, {
-            headers: { Authorization: authHeader, 'Content-Type': 'application/json' },
-            timeout: 8000,
-          });
-          if (created.data?.id) ids.push(created.data.id);
-        }
-      } catch { /* skip failed tags */ }
+        const found = await this.wpRequest('GET', `${wpApiUrl}/wp/v2/tags?slug=${slug}&per_page=1`, null, authHeader);
+        if (Array.isArray(found) && found.length) { ids.push(found[0].id); continue; }
+        const created = await this.wpRequest('POST', `${wpApiUrl}/wp/v2/tags`, { name, slug }, authHeader);
+        if (created?.id) ids.push(created.id);
+      } catch { /* skip */ }
     }
     return ids;
   }
 
-  // ── POST ke WP dengan error classification ────────────────────────────────
+  // ── WordPress HTTP helper ─────────────────────────────────────────────────
 
-  async wpPost(url, data, authHeader, wpApiUrl) {
+  async wpRequest(method, url, data, authHeader, extraHeaders = {}) {
+    const isBuffer = Buffer.isBuffer(data);
+    const headers = {
+      Authorization: authHeader,
+      ...(isBuffer ? {} : { 'Content-Type': 'application/json' }),
+      ...extraHeaders,
+    };
+
     try {
-      const resp = await axios.post(url, data, {
-        headers: { Authorization: authHeader, 'Content-Type': 'application/json' },
-        timeout: config.wpTimeout,
-      });
+      let resp;
+      if (method === 'GET') {
+        resp = await axios.get(url, { headers, timeout: config.wpTimeout });
+      } else if (method === 'POST') {
+        resp = await axios.post(url, data, { headers, timeout: config.wpTimeout });
+      } else {
+        resp = await axios({ method, url, data, headers, timeout: config.wpTimeout });
+      }
       return resp.data;
     } catch (err) {
       const status = err.response?.status;
       if (status === 429) {
-        // Rate limited — will be retried by retry()
         const retryAfter = parseInt(err.response.headers?.['retry-after'] || '30', 10);
         await new Promise(r => setTimeout(r, retryAfter * 1000));
-        throw err;
       }
-      // Attach WP error message for better logging
-      const wpMsg = err.response?.data?.message || err.message;
-      const wpCode = err.response?.data?.code || status;
-      const enhancedErr = new Error(`WP API ${status || 'error'}: ${wpMsg}`);
-      enhancedErr.wpCode = wpCode;
-      enhancedErr.wpStatus = status;
-      throw enhancedErr;
+      const msg = err.response?.data?.message || err.message;
+      const enhanced = new Error(`WP ${method} ${status || 'error'}: ${msg}`);
+      enhanced.wpStatus = status;
+      enhanced.wpCode   = err.response?.data?.code;
+      throw enhanced;
     }
   }
 
-  // ── Handle WP-specific errors ────────────────────────────────────────────
+  // ── Handle WP-specific error ──────────────────────────────────────────────
 
   async handleWpError(err, articleId, siteId) {
     const status = err.wpStatus;
-
     if (status === 401 || status === 403) {
-      // Credentials invalid → pause site, alert
-      await this.log('critical', `WP auth gagal (${status}) untuk site ${siteId} — site di-pause`, { articleId, siteId, wpStatus: status });
-      if (siteId) {
-        await query(`UPDATE sites SET status = 'paused' WHERE id = $1`, [siteId]).catch(() => {});
-      }
-      await query(
-        `UPDATE articles SET status = 'failed', last_updated_at = NOW() WHERE id = $1`,
-        [articleId]
-      ).catch(() => {});
+      await this.log('critical', `WP auth gagal (${status}) — site ${siteId} di-pause`, { articleId, siteId });
+      if (siteId) await query(`UPDATE sites SET status = 'paused' WHERE id = $1`, [siteId]).catch(() => {});
     } else {
       await this.log('error', `WP publish gagal: ${err.message}`, { articleId, wpStatus: status });
-      await query(
-        `UPDATE articles SET status = 'failed', last_updated_at = NOW() WHERE id = $1`,
-        [articleId]
-      ).catch(() => {});
     }
+    await query(`UPDATE articles SET status = 'failed', last_updated_at = NOW() WHERE id = $1`, [articleId]).catch(() => {});
   }
 
-  // ── Append related articles section ──────────────────────────────────────
+  // ── Append related + external links before schema ─────────────────────────
 
-  appendInternalLinks(html, internalLinks) {
-    if (!internalLinks || !internalLinks.length) return html;
+  appendRelatedSection(html, internalLinks, externalLinks, brief) {
+    const sections = [];
 
-    const linkItems = internalLinks
-      .map(l => `<li><a href="${l.url}" title="${l.title}">${l.anchorText || l.title}</a></li>`)
-      .join('\n');
-
-    const relatedSection = `\n\n<div class="news-ai-related-articles">
-<h3>Baca Juga</h3>
-<ul>
-${linkItems}
-</ul>
-</div>`;
-
-    // Insert before the first <script type="application/ld+json"> (schema markup)
-    const schemaIdx = html.indexOf('<script type="application/ld+json">');
-    if (schemaIdx !== -1) {
-      return html.slice(0, schemaIdx) + relatedSection + '\n\n' + html.slice(schemaIdx);
+    // Internal: "Baca Juga"
+    if (Array.isArray(internalLinks) && internalLinks.length) {
+      const items = internalLinks
+        .map(l => `<li><a href="${l.url}" title="${l.title}">${l.anchorText || l.title}</a></li>`)
+        .join('\n');
+      sections.push(`<div class="news-ai-related">\n<h3>Baca Juga</h3>\n<ul>\n${items}\n</ul>\n</div>`);
     }
-    return html + relatedSection;
+
+    // External: "Referensi" — from seo_data AND brief sources
+    const extLinks = [...(externalLinks || [])];
+    const briefSources = Array.isArray(brief?.sources) ? brief.sources : [];
+    for (const src of briefSources) {
+      if (src.url && src.url.startsWith('http') && !extLinks.find(l => l.url === src.url)) {
+        extLinks.push({ url: src.url, title: src.name || src.title || src.url, isExternal: true });
+      }
+    }
+    const topExtLinks = extLinks.slice(0, 2);
+
+    if (topExtLinks.length) {
+      const items = topExtLinks
+        .map(l => `<li><a href="${l.url}" target="_blank" rel="noopener noreferrer">${l.title}</a></li>`)
+        .join('\n');
+      sections.push(`<div class="news-ai-referensi">\n<h3>Referensi</h3>\n<ul>\n${items}\n</ul>\n</div>`);
+    }
+
+    if (!sections.length) return html;
+
+    const block = '\n\n' + sections.join('\n\n') + '\n\n';
+
+    // Insert before first <script type="application/ld+json">
+    const schemaIdx = html.indexOf('<script type="application/ld+json">');
+    if (schemaIdx !== -1) return html.slice(0, schemaIdx) + block + html.slice(schemaIdx);
+    return html + block;
   }
 }
 
