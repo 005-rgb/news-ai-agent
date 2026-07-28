@@ -55,6 +55,10 @@ const config = {
   wpTimeout: parseInt(process.env.WP_TIMEOUT_MS || '30000', 10),
   rssTimeout: parseInt(process.env.RSS_TIMEOUT_MS || '20000', 10),
   imageTimeout: parseInt(process.env.IMAGE_TIMEOUT_MS || '45000', 10),
+
+  // ── Image APIs (optional — Phase 5) ──────────────────────────────────────
+  unsplashAccessKey: process.env.UNSPLASH_ACCESS_KEY || null,
+  pexelsApiKey: process.env.PEXELS_API_KEY || null,
 };
 
 module.exports = config;

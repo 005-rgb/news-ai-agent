@@ -173,6 +173,16 @@ class QualityRaterAgent extends BaseAgent {
     } else {
       const statusVerb = passed ? 'PASSED' : 'FORCE-PASSED (max QC revisions reached)';
       await this.log('info', `QC ${statusVerb}. E-E-A-T: ${eeAtScore}, aiRisk: ${aiDetectionRisk}`, { articleId, eeAtScore, aiDetectionRisk });
+
+      // ── Enqueue IMAGE job (Phase 5) ─────────────────────────────────────
+      const { rows: artRows } = await query(
+        `SELECT site_id, category FROM articles WHERE id = $1`, [articleId]
+      );
+      const art = artRows[0] || {};
+      await enqueueJob('IMAGE', articleId, {
+        siteId: art.site_id || payload?.siteId,
+        category: art.category || 'umum',
+      }, 'normal');
     }
 
     return { eeAtScore, passed, detailedScores, aiDetectionRisk, revisionNotes };

@@ -9,12 +9,14 @@ const STATUS_COLORS = {
   imaging:'bg-orange-100 text-orange-800',
   seo:'bg-cyan-100 text-cyan-800',
   scheduled:'bg-teal-100 text-teal-800',
+  publishing:'bg-emerald-100 text-emerald-800',
   published:'bg-green-100 text-green-800',
+  ready_to_publish:'bg-lime-100 text-lime-800',
   failed:'bg-red-100 text-red-800',
   draft:'bg-gray-100 text-gray-600',
 };
 
-const PIPELINE_STEPS = ['RESEARCH','WRITE','EDIT','QC','IMAGE','SEO'];
+const PIPELINE_STEPS = ['RESEARCH','WRITE','EDIT','QC','IMAGE','SEO','PUBLISH'];
 const FORMATS = ['berita_singkat','berita_panjang','jurnal_review','feature_opini','listicle','faq_article','evergreen'];
 const CATEGORIES = ['umum','teknologi','bisnis','kesehatan','pendidikan','politik','olahraga','hiburan','sains','akademik'];
 
@@ -496,31 +498,109 @@ export default function Articles() {
                 {/* Scores tab */}
                 {activeTab === 'scores' && (
                   <div className="space-y-3 text-xs">
+                    {/* Score cards */}
                     <div className="grid grid-cols-2 gap-2">
                       <div className="bg-gray-50 rounded-lg p-3 text-center">
-                        <div className="text-2xl font-bold text-gray-800">{selected.quality_score ?? '—'}</div>
+                        <div className={`text-2xl font-bold ${selected.quality_score >= 75 ? 'text-green-700' : selected.quality_score ? 'text-red-600' : 'text-gray-400'}`}>{selected.quality_score ?? '—'}</div>
                         <div className="text-xs text-gray-500 mt-0.5">Quality Score</div>
                       </div>
                       <div className="bg-gray-50 rounded-lg p-3 text-center">
-                        <div className="text-2xl font-bold text-gray-800">{selected.eeat_score ?? '—'}</div>
+                        <div className={`text-2xl font-bold ${selected.eeat_score >= 80 ? 'text-green-700' : selected.eeat_score ? 'text-red-600' : 'text-gray-400'}`}>{selected.eeat_score ?? '—'}</div>
                         <div className="text-xs text-gray-500 mt-0.5">E-E-A-T Score</div>
                       </div>
                     </div>
+
+                    {/* Article meta */}
                     <div className="space-y-1.5">
-                      <div className="flex justify-between"><span className="text-gray-500">Provider</span><span>{selected.provider_used || '—'}</span></div>
+                      <div className="flex justify-between"><span className="text-gray-500">Provider</span><span className="font-medium">{selected.provider_used || '—'}</span></div>
                       <div className="flex justify-between"><span className="text-gray-500">Site</span><span>{selected.site_name || '—'}</span></div>
                       <div className="flex justify-between"><span className="text-gray-500">Dibuat</span><span>{new Date(selected.created_at).toLocaleString('id-ID')}</span></div>
                       {selected.published_at && (
                         <div className="flex justify-between"><span className="text-gray-500">Publish</span><span>{new Date(selected.published_at).toLocaleString('id-ID')}</span></div>
                       )}
-                      {selected.wordpress_url && (
-                        <div className="pt-1">
-                          <a href={selected.wordpress_url} target="_blank" rel="noopener" className="text-blue-600 hover:underline">
-                            Lihat di WordPress ↗
-                          </a>
-                        </div>
+                      {selected.wordpress_post_id && (
+                        <div className="flex justify-between"><span className="text-gray-500">WP Post ID</span><span className="font-mono">#{selected.wordpress_post_id}</span></div>
                       )}
                     </div>
+
+                    {/* WordPress link */}
+                    {selected.wordpress_url && (
+                      <div className="bg-green-50 border border-green-200 rounded-lg p-2.5">
+                        <div className="text-green-700 font-medium mb-1">✅ Terbit di WordPress</div>
+                        <a href={selected.wordpress_url} target="_blank" rel="noopener" className="text-blue-600 hover:underline break-all">
+                          {selected.wordpress_url} ↗
+                        </a>
+                      </div>
+                    )}
+
+                    {/* SEO Data */}
+                    {(() => {
+                      const seo = typeof selected.seo_data === 'string' ? JSON.parse(selected.seo_data || '{}') : (selected.seo_data || {});
+                      if (!seo.metaTitle && !seo.slug) return null;
+                      return (
+                        <div className="pt-2 border-t border-gray-100 space-y-1.5">
+                          <div className="font-medium text-gray-600">SEO Data</div>
+                          {seo.focusKeyword && <div className="flex justify-between"><span className="text-gray-500">Keyword</span><span className="font-medium text-blue-600">{seo.focusKeyword}</span></div>}
+                          {seo.slug && <div className="flex justify-between"><span className="text-gray-500">Slug</span><span className="font-mono text-gray-700 text-xs">{seo.slug}</span></div>}
+                          {seo.metaTitle && (
+                            <div>
+                              <div className="text-gray-500 mb-0.5">Meta Title <span className="text-gray-400">({seo.metaTitle.length} kar)</span></div>
+                              <div className="text-gray-700 bg-gray-50 rounded px-2 py-1">{seo.metaTitle}</div>
+                            </div>
+                          )}
+                          {seo.metaDescription && (
+                            <div>
+                              <div className="text-gray-500 mb-0.5">Meta Desc <span className="text-gray-400">({seo.metaDescription.length} kar)</span></div>
+                              <div className="text-gray-600 bg-gray-50 rounded px-2 py-1 leading-relaxed">{seo.metaDescription}</div>
+                            </div>
+                          )}
+                          {seo.keywordDensity && (
+                            <div className="flex justify-between">
+                              <span className="text-gray-500">Keyword Density</span>
+                              <span className={seo.keywordDensity.flagged ? 'text-red-600 font-medium' : 'text-gray-700'}>{seo.keywordDensity.percent}%{seo.keywordDensity.flagged ? ' ⚠' : ''}</span>
+                            </div>
+                          )}
+                          {seo.internalLinks?.length > 0 && (
+                            <div>
+                              <div className="text-gray-500 mb-0.5">Internal Links ({seo.internalLinks.length})</div>
+                              {seo.internalLinks.map((l, i) => (
+                                <div key={i} className="text-blue-600 text-xs truncate">{l.title}</div>
+                              ))}
+                            </div>
+                          )}
+                          {seo.lsiKeywords?.length > 0 && (
+                            <div>
+                              <div className="text-gray-500 mb-0.5">LSI Keywords</div>
+                              <div className="flex flex-wrap gap-1">
+                                {seo.lsiKeywords.slice(0, 6).map((k, i) => (
+                                  <span key={i} className="bg-blue-50 text-blue-600 rounded px-1.5 py-0.5 text-xs">{k}</span>
+                                ))}
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })()}
+
+                    {/* Image data */}
+                    {(() => {
+                      const img = typeof selected.image_data === 'string' ? JSON.parse(selected.image_data || '{}') : (selected.image_data || {});
+                      if (!img.featured) return null;
+                      const f = img.featured;
+                      return (
+                        <div className="pt-2 border-t border-gray-100">
+                          <div className="font-medium text-gray-600 mb-1.5">Gambar Featured</div>
+                          {f.url && (
+                            <img src={f.url} alt={f.altText} className="w-full rounded-lg object-cover mb-1.5" style={{ maxHeight: '100px' }} />
+                          )}
+                          <div className="space-y-1">
+                            <div className="flex justify-between"><span className="text-gray-500">Source</span><span className={`font-medium ${f.source === 'placeholder' ? 'text-orange-500' : 'text-green-600'}`}>{f.source}</span></div>
+                            {f.altText && <div className="text-gray-600 text-xs bg-gray-50 rounded px-2 py-1">{f.altText}</div>}
+                            {f.credit && <div className="text-gray-400 text-xs">{f.credit}</div>}
+                          </div>
+                        </div>
+                      );
+                    })()}
 
                     {/* Change log */}
                     {cv?.changeLog?.length > 0 && (
