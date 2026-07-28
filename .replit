@@ -1,6 +1,18 @@
-modules = ["postgresql-16"]
+modules = ["nodejs-20", "postgresql-16"]
 [nix]
 channel = "stable-25_05"
 
 [agent]
 expertMode = true
+
+[userenv]
+
+[userenv.shared]
+ADMIN_USERNAME = "admin"
+EEAT_SCORE_THRESHOLD = "80"
+HUMANIZER_LEVEL = "3"
+KEY_WARNING_THRESHOLD = "80"
+NODE_ENV = "development"
+PORT = "5000"
+QUALITY_SCORE_THRESHOLD = "75"
+TIMEZONE = "Asia/Jakarta"
