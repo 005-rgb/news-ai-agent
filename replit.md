@@ -1,115 +1,75 @@
 # News AI Agent
 
-Sistem redaksi digital otomatis berbasis multi-LLM yang memproduksi, mengedit, dan mempublikasikan artikel berita ke 8 website WordPress secara otomatis.
-
-## Cara Menjalankan
-
-```bash
-npm install       # Install semua dependencies
-node server/db.js migrate  # Setup database (pertama kali saja)
-npm run dev       # Development: backend + frontend secara bersamaan
-# ATAU
-npm start         # Production: Express serve React build
-```
-
-## Environment Variables Wajib
-
-| Variable | Keterangan |
-|---|---|
-| `SESSION_SECRET` | Secret untuk session Express (sudah diset) |
-| `ENCRYPTION_KEY` | 32-byte hex key untuk enkripsi AES-256 |
-| `DATABASE_URL` | PostgreSQL connection string |
-| `ADMIN_USERNAME` | Username admin (default: admin) |
-| `ADMIN_PASSWORD_HASH` | bcrypt hash password admin (cost 12) |
-
-## Generate ENCRYPTION_KEY
-
-```bash
-node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
-```
-
-## Generate ADMIN_PASSWORD_HASH
-
-```bash
-node -e "require('bcryptjs').hash('passwordAnda', 12).then(h => console.log(h))"
-```
+Automated multi-site WordPress publishing system powered by AI agents. The system researches real news sources, writes articles in Indonesian journalistic style, edits them for quality, runs E-E-A-T checks, and publishes to WordPress — fully automated 24/7.
 
 ## Stack
 
-- **Backend**: Node.js 20 + Express.js
-- **Database**: PostgreSQL 16
-- **Frontend**: React 18 + Vite + Tailwind CSS
-- **LLM Providers**: Gemini, Groq, DeepSeek, OpenRouter, Mistral, Together AI, Cerebras, Cohere
-- **Auth**: Session-based dengan bcryptjs
+- **Backend**: Node.js + Express (CommonJS), `server/index.js` entry point, port 5000
+- **Frontend**: React 18 + Vite (built to `client/dist/`, served by Express)
+- **Database**: Replit PostgreSQL (12 tables, auto-migrated on startup)
+- **Auth**: Session-based with `express-session` + `connect-pg-simple`
+- **Encryption**: AES-256-GCM for all sensitive values (API keys, WP passwords)
 
-## Struktur Project
+## Run
 
-```
-news-ai-agent/
-├── server/               # Backend Express
-│   ├── agents/           # AI Agents (reporter, writer, editor, dll)
-│   ├── services/         # Core services (keyPool, llmRouter, jobQueue, pipeline)
-│   ├── routes/           # REST API endpoints
-│   ├── middleware/        # Auth, rate limiter, error handler
-│   ├── utils/            # Encryption, logger, humanizer, similarity
-│   ├── config/           # Config loader, providers, prompt templates
-│   ├── db.js             # PostgreSQL pool + migration
-│   └── index.js          # Entry point
-├── client/               # Frontend React
-│   └── src/
-│       ├── pages/        # 9 halaman dashboard
-│       ├── components/   # Layout
-│       └── lib/api.js    # API client
-├── docs/                 # PRD + Build Phases
-└── package.json
+```bash
+npm run build    # build React client
+npm run start    # start Express server (serves built client + API)
+npm run dev      # dev mode: concurrently runs server (node --watch) + vite (port 5173)
 ```
 
-## Build Phases
+The workflow `Start application` runs `npm run build && node server/index.js`.
 
-- **Phase 0** ✅ Foundation & Infrastructure (selesai)
-- **Phase 1** → API Key Pool Manager
-- **Phase 2** → Source Intelligence (RSS, Academic, Scraper)
-- **Phase 3** → Content Pipeline Core (7 agents end-to-end)
-- **Phase 4** → Writing Standards Engine
-- **Phase 5** → Fotografer Agent & WordPress Publisher
-- **Phase 6** → Scheduler & Full Automation
-- **Phase 7** → Dashboard Full (semua 9 halaman real)
-- **Phase 8** → Quality & Humanizer Engine
-- **Phase 9** → Rapat Redaksi Engine
-- **Phase 10** → Innovation Layer
-- **Phase 11** → Hardening & Production Ready
+## Phase Status
 
-## API Endpoints
+| Phase | Name | Status |
+|-------|------|--------|
+| 0 | Foundation & Infrastructure | ✅ Done |
+| 1 | API Key Pool Manager | ✅ Done |
+| 2 | Source Intelligence | 🔜 Next |
+| 3–11 | Pipeline, Publishing, Dashboard… | 🔜 Planned |
+
+## Login
+
+- Username: `admin` (set via `ADMIN_USERNAME` env var)
+- Password: `Admin@2024` (default — change via `ADMIN_PASSWORD_HASH` env var)
+
+Generate a new hash: `node -e "require('bcryptjs').hash('yourpassword', 12).then(h => console.log(h))"`
+
+## Key Environment Variables
+
+| Variable | Description |
+|---|---|
+| `SESSION_SECRET` | Express session secret (Replit Secret) |
+| `ENCRYPTION_KEY` | 64-char hex AES-256 key for encrypting API keys |
+| `DATABASE_URL` | PostgreSQL connection string (auto-managed by Replit) |
+| `ADMIN_USERNAME` | Admin login username (default: `admin`) |
+| `ADMIN_PASSWORD_HASH` | bcrypt hash of admin password |
+
+## Architecture
 
 ```
-GET  /api/v1/health              — Health check
-POST /api/v1/auth/login          — Login
-POST /api/v1/auth/logout         — Logout
-GET  /api/v1/auth/me             — Check session
-
-GET  /api/v1/sites               — List sites
-POST /api/v1/sites               — Tambah site
-PATCH /api/v1/sites/:id          — Update site
-POST /api/v1/sites/:id/test      — Test WordPress connection
-
-GET  /api/v1/keys                — List API keys
-POST /api/v1/keys                — Tambah API key
-POST /api/v1/keys/:id/test       — Test API key (real LLM call)
-GET  /api/v1/keys/alerts         — Active alerts
-
-GET  /api/v1/sources             — List sumber berita
-POST /api/v1/sources/:id/test    — Test fetch sumber
-
-GET  /api/v1/articles            — List artikel (filter, paginate)
-POST /api/v1/queue/run           — Jalankan pipeline manual
-
-GET  /api/v1/analytics/overview  — Dashboard stats
-GET  /api/v1/analytics/logs      — System logs
+server/
+├── index.js              # Express app, cron jobs, boot
+├── db.js                 # PostgreSQL pool + DDL migration
+├── config/index.js       # Config from env vars (validates required vars)
+├── config/providers.js   # LLM provider defaults
+├── config/promptTemplates.js # Writing prompt templates
+├── middleware/auth.js    # Session auth middleware
+├── routes/apiKeys.js     # Phase 1.1: Full CRUD + test + alerts + stats
+├── services/keyPool.js   # Phase 1.2-1.3: Rotation, freshness, usage tracking
+├── services/llmRouter.js # Phase 1.4: 8-provider LLM abstraction
+├── services/jobQueue.js  # Phase 0+3: Persistent job queue + worker
+├── agents/               # 9 AI agents (reporter, writer, editor, etc.)
+└── utils/                # encryption, logger, humanizer, seoFormatter, similarity
+client/src/
+├── pages/ApiKeys.jsx     # Phase 1.1: Full key management UI
+├── pages/Overview.jsx    # Dashboard home
+└── lib/api.js            # Axios API client (all endpoints)
 ```
 
 ## User Preferences
 
-- Bahasa Indonesia untuk kode komentar dan UI
-- Stack: Node.js + Express + PostgreSQL + React + Vite + Tailwind
-- Target deployment: cPanel / Laragon (tidak bergantung cloud eksklusif)
-- Port: 5000 (backend), 5173 (frontend dev)
+- Language: Bahasa Indonesia (PRD, comments, UI labels)
+- Prinsip: Setiap fitur harus **real, full-featured, fully integrated** — tidak ada placeholder
+- Build order follows docs/BUILD-PHASES.md strictly

@@ -49,12 +49,15 @@ export const sites = {
 
 // ── API Keys ──────────────────────────────────────────────────────────────────
 export const apiKeys = {
-  list:   ()        => api.get('/keys'),
-  alerts: ()        => api.get('/keys/alerts'),
-  create: (data)    => api.post('/keys', data),
-  update: (id,data) => api.patch(`/keys/${id}`, data),
-  delete: (id)      => api.delete(`/keys/${id}`, { data: { confirm: true } }),
-  test:   (id)      => api.post(`/keys/${id}/test`),
+  list:      ()        => api.get('/keys'),
+  alerts:    ()        => api.get('/keys/alerts'),
+  stats:     ()        => api.get('/keys/stats'),
+  order:     ()        => api.get('/keys/order'),
+  saveOrder: (chain)   => api.put('/keys/order', { chain }),
+  create:    (data)    => api.post('/keys', data),
+  update:    (id,data) => api.patch(`/keys/${id}`, data),
+  delete:    (id)      => api.delete(`/keys/${id}`, { data: { confirm: true } }),
+  test:      (id)      => api.post(`/keys/${id}/test`),
 };
 
 // ── Sources ───────────────────────────────────────────────────────────────────

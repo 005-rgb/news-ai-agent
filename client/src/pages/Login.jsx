@@ -75,7 +75,7 @@ export default function Login({ onLogin }) {
         </form>
 
         <p className="text-center text-gray-500 text-xs mt-4">
-          Phase 0 — Foundation & Infrastructure
+          Phase 1 — API Key Pool Manager ✓
         </p>
       </div>
     </div>

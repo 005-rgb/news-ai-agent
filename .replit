@@ -1,4 +1,4 @@
-modules = ["nodejs-20", "web"]
+modules = ["nodejs-20", "web", "postgresql-16"]
 [nix]
 channel = "stable-25_05"
 
@@ -16,3 +16,29 @@ NODE_ENV = "development"
 PORT = "5000"
 QUALITY_SCORE_THRESHOLD = "75"
 TIMEZONE = "Asia/Jakarta"
+ADMIN_PASSWORD_HASH = "$2a$12$wIQheJPW9UIlhaHO5WM7q.9RzuL/.pCjcZ.dF0X9LcQxbnygvRvF6"
+ENCRYPTION_KEY = "d0274916416db4411b40d4722809579bb8bd3a6be3fe0b2e7f255921b0deeac1"
+
+[workflows]
+runButton = "Project"
+
+[[workflows.workflow]]
+name = "Project"
+mode = "parallel"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "workflow.run"
+args = "Start application"
+
+[[workflows.workflow]]
+name = "Start application"
+author = "agent"
+
+[[workflows.workflow.tasks]]
+task = "shell.exec"
+args = "npm run build && node server/index.js"
+waitForPort = 5000
+
+[workflows.workflow.metadata]
+outputType = "webview"

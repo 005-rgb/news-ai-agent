@@ -14,29 +14,31 @@
     "seed": "node server/db.js seed"
   },
   "dependencies": {
+    "@google/generative-ai": "^0.15.0",
+    "axios": "^1.18.1",
+    "bcryptjs": "^2.4.3",
+    "cheerio": "^1.0.0",
+    "compression": "^1.7.4",
+    "concurrently": "^8.2.2",
+    "connect-pg-simple": "^9.0.1",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.5",
     "express": "^4.19.2",
+    "express-rate-limit": "^7.3.1",
     "express-session": "^1.18.0",
     "helmet": "^7.1.0",
-    "cors": "^2.8.5",
-    "compression": "^1.7.4",
-    "express-rate-limit": "^7.3.1",
-    "pg": "^8.12.0",
-    "bcryptjs": "^2.4.3",
-    "uuid": "^10.0.0",
-    "axios": "^1.7.2",
     "node-cron": "^3.0.3",
+    "pg": "^8.12.0",
+    "react": "^19.2.8",
+    "react-dom": "^19.2.8",
     "rss-parser": "^3.13.0",
-    "cheerio": "^1.0.0",
-    "dotenv": "^16.4.5",
-    "connect-pg-simple": "^9.0.1",
-    "@google/generative-ai": "^0.15.0",
-    "concurrently": "^8.2.2"
+    "uuid": "^10.0.0"
   },
   "devDependencies": {
     "@vitejs/plugin-react": "^4.3.1",
-    "vite": "^5.3.4",
-    "tailwindcss": "^3.4.6",
     "autoprefixer": "^10.4.19",
-    "postcss": "^8.4.40"
+    "postcss": "^8.4.40",
+    "tailwindcss": "^3.4.6",
+    "vite": "^5.3.4"
   }
 }

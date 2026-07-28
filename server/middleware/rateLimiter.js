@@ -2,10 +2,10 @@
 
 const rateLimit = require('express-rate-limit');
 
-// Global rate limiter: 100 req/min per IP
+// Global rate limiter: 300 req/min per IP (dev-friendly; tighten in production)
 const globalLimiter = rateLimit({
   windowMs: 60 * 1000,
-  max: 100,
+  max: 300,
   standardHeaders: true,
   legacyHeaders: false,
   message: {
