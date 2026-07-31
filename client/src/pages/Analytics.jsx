@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { analytics } from '../lib/api';
+import { analytics, sites as sitesApi } from '../lib/api';
 
 const TABS = ['Produksi','E-E-A-T Mingguan','Provider','Prompt Evolution','Evergreen','Key Usage','Error Rate','System Logs'];
 
@@ -51,6 +51,9 @@ function BarChart({ data, valueKey, labelKey, colorFn, height = 120 }) {
 export default function Analytics() {
   const [activeTab, setActiveTab] = useState('Produksi');
   const [production, setProduction] = useState([]);
+  const [prodDays, setProdDays] = useState(14);
+  const [prodSiteId, setProdSiteId] = useState('');
+  const [sitesList, setSitesList] = useState([]);
   const [providers, setProviders] = useState([]);
   const [eeAtWeekly, setEeAtWeekly] = useState([]);
   const [prompts, setPrompts] = useState([]);
@@ -65,8 +68,8 @@ export default function Analytics() {
 
   const load = async () => {
     setLoading(true);
-    const [prod, prov, eeat, pr, ev, ku, er, l] = await Promise.all([
-      analytics.production({ days: 14 }).catch(() => ({ data: [] })),
+    const [prod, prov, eeat, pr, ev, ku, er, l, sitesRes] = await Promise.all([
+      analytics.production({ days: prodDays, ...(prodSiteId ? { site_id: prodSiteId } : {}) }).catch(() => ({ data: [] })),
       analytics.providers().catch(() => ({ data: [] })),
       analytics.eeAtWeekly().catch(() => ({ data: [] })),
       analytics.prompts().catch(() => ({ data: [] })),
@@ -74,6 +77,7 @@ export default function Analytics() {
       analytics.keyUsage().catch(() => ({ data: [], history: [] })),
       analytics.errorRate().catch(() => ({ data: [] })),
       analytics.logs({ level: logFilter.level, search: logFilter.search, agent: logFilter.agent, limit: 50, page: logsPage }).catch(() => ({ data: [], pagination: { total: 0 } })),
+      sitesApi.list().catch(() => ({ data: [] })),
     ]);
     setProduction(prod.data || []);
     setProviders(prov.data || []);
@@ -84,10 +88,11 @@ export default function Analytics() {
     setErrorRate(er.data || []);
     setLogs(l.data || []);
     setLogsTotal(l.pagination?.total || 0);
+    setSitesList(sitesRes.data || []);
     setLoading(false);
   };
 
-  useEffect(() => { load(); }, [logsPage, logFilter.level]);
+  useEffect(() => { load(); }, [logsPage, logFilter.level, prodDays, prodSiteId]);
 
   const maxProd = Math.max(...production.map(p => parseInt(p.count) || 0), 1);
 
@@ -114,22 +119,51 @@ export default function Analytics() {
           {/* ── Tab: Produksi ──────────────────────────────────────────────── */}
           {activeTab === 'Produksi' && (
             <div className="bg-white rounded-xl border border-gray-200 p-5">
-              <h3 className="font-semibold text-gray-800 mb-4">Produksi Artikel (14 Hari Terakhir)</h3>
+              <div className="flex flex-wrap items-center justify-between gap-3 mb-4">
+                <h3 className="font-semibold text-gray-800">Produksi Artikel</h3>
+                <div className="flex items-center gap-2 flex-wrap">
+                  <select
+                    value={prodDays}
+                    onChange={e => setProdDays(parseInt(e.target.value))}
+                    className="border rounded-lg px-2 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  >
+                    {[7, 14, 30, 60, 90].map(d => (
+                      <option key={d} value={d}>{d} hari terakhir</option>
+                    ))}
+                  </select>
+                  <select
+                    value={prodSiteId}
+                    onChange={e => setProdSiteId(e.target.value)}
+                    className="border rounded-lg px-2 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  >
+                    <option value="">Semua site</option>
+                    {sitesList.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+                  </select>
+                  <span className="text-xs text-gray-400">
+                    Total: {production.reduce((s, d) => s + (parseInt(d.count) || 0), 0)} artikel
+                  </span>
+                </div>
+              </div>
               {production.length === 0 ? (
-                <p className="text-gray-400 text-sm">Belum ada artikel yang dipublikasikan.</p>
+                <p className="text-gray-400 text-sm text-center py-8">Belum ada artikel yang dipublikasikan dalam rentang ini.</p>
               ) : (
-                <div className="flex items-end gap-1 h-36">
-                  {production.map(d => (
-                    <div key={d.date} className="flex-1 flex flex-col items-center gap-1">
-                      <div className="text-xs text-gray-500">{parseInt(d.count)}</div>
-                      <div
-                        className="w-full bg-blue-500 rounded-t hover:bg-blue-600 transition-colors"
-                        style={{ height: `${Math.max((parseInt(d.count) / maxProd) * 100, 4)}%` }}
-                        title={`${d.date}: ${d.count} artikel`}
-                      />
-                      <div className="text-xs text-gray-400">{d.date?.slice(5)}</div>
-                    </div>
-                  ))}
+                <div className="flex items-end gap-1 h-36 overflow-x-auto">
+                  {production.map(d => {
+                    const val = parseInt(d.count) || 0;
+                    return (
+                      <div key={d.date} className="flex-1 min-w-6 flex flex-col items-center gap-1">
+                        <div className="text-xs text-gray-500">{val > 0 ? val : ''}</div>
+                        <div
+                          className="w-full bg-blue-500 rounded-t hover:bg-blue-600 transition-colors"
+                          style={{ height: `${Math.max((val / maxProd) * 100, val > 0 ? 4 : 1)}%` }}
+                          title={`${d.date}: ${val} artikel`}
+                        />
+                        <div className="text-xs text-gray-400" style={{ writingMode: prodDays > 30 ? 'vertical-rl' : 'horizontal-tb' }}>
+                          {d.date?.slice(prodDays > 30 ? 5 : 5)}
+                        </div>
+                      </div>
+                    );
+                  })}
                 </div>
               )}
             </div>

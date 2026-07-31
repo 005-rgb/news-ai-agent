@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { analytics, sites as sitesApi, apiKeys } from '../lib/api';
 
+
 function StatCard({ label, value, color = 'blue', icon }) {
   const colors = {
     blue:   'bg-blue-50 border-blue-200 text-blue-700',
@@ -23,23 +24,25 @@ export default function Overview({ navigate }) {
   const [activity, setActivity] = useState([]);
   const [alerts, setAlerts] = useState([]);
   const [siteList, setSiteList] = useState([]);
+  const [production, setProduction] = useState([]);
   const [loading, setLoading] = useState(true);
 
   const load = async () => {
     try {
-      const [s, p, act, al, sl] = await Promise.all([
+      const [s, p, act, al, sl, prod] = await Promise.all([
         analytics.overview(),
         analytics.pipeline(),
         analytics.activity(),
         apiKeys.alerts(),
         sitesApi.list(),
+        analytics.production({ days: 7 }),
       ]);
       setStats(s.data);
       setPipeline(p.data || {});
       setActivity(act.data || []);
-      // al.data = { alerts: [], logs: [], summary: {} } — extract .alerts array
       setAlerts(al.data?.alerts || []);
       setSiteList(sl.data || []);
+      setProduction(prod.data || []);
     } catch (err) {
       console.error('Overview load error:', err);
     } finally {
@@ -87,6 +90,33 @@ export default function Overview({ navigate }) {
                     </span>
                   </div>
                 ))}
+              </div>
+            </div>
+          )}
+
+          {/* Production chart — 7 hari */}
+          {production.length > 0 && (
+            <div className="bg-white rounded-xl border border-gray-200 p-5 mb-6">
+              <div className="flex items-center justify-between mb-3">
+                <h3 className="font-semibold text-gray-800">Produksi Artikel (7 Hari Terakhir)</h3>
+                <span className="text-xs text-gray-400">{production.reduce((s, d) => s + (parseInt(d.count) || 0), 0)} total</span>
+              </div>
+              <div className="flex items-end gap-1.5 h-20">
+                {production.map((d) => {
+                  const val = parseInt(d.count) || 0;
+                  const maxVal = Math.max(...production.map(x => parseInt(x.count) || 0), 1);
+                  return (
+                    <div key={d.date} className="flex-1 flex flex-col items-center gap-1">
+                      <div className="text-xs text-gray-400">{val > 0 ? val : ''}</div>
+                      <div
+                        className="w-full bg-blue-500 rounded-t hover:bg-blue-600 transition-colors"
+                        style={{ height: `${Math.max((val / maxVal) * 100, val > 0 ? 8 : 2)}%` }}
+                        title={`${d.date}: ${val} artikel`}
+                      />
+                      <div className="text-xs text-gray-400 truncate w-full text-center">{String(d.date || '').slice(5)}</div>
+                    </div>
+                  );
+                })}
               </div>
             </div>
           )}

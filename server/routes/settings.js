@@ -136,7 +136,7 @@ router.get('/system-config', async (req, res, next) => {
         key_warning_threshold:     dbConfig.key_warning_threshold    ?? config.keyWarningThreshold     ?? 80,
         human_review_enabled:      dbConfig.human_review_enabled     ?? false,
         image_fallback_chain:      dbConfig.image_fallback_chain     ?? ['ai_generate','unsplash','pexels','placeholder'],
-        timezone:                  config.timezone,
+        timezone:                  dbConfig.timezone                 ?? config.timezone                ?? 'Asia/Jakarta',
         adminUsername:             config.adminUsername,
         authConfigured:            !!config.adminPasswordHash,
       },
@@ -149,7 +149,7 @@ router.patch('/system-config', async (req, res, next) => {
   try {
     const ALLOWED_KEYS = [
       'humanizer_level', 'quality_score_threshold', 'eeat_score_threshold',
-      'key_warning_threshold', 'human_review_enabled',
+      'key_warning_threshold', 'human_review_enabled', 'timezone',
     ];
     const updates = [];
     for (const key of ALLOWED_KEYS) {

@@ -3,6 +3,39 @@ import { sites as sitesApi } from '../lib/api';
 
 const NICHES = ['politik','bisnis','teknologi','kesehatan','akademik','lifestyle','olahraga','hukum','umum'];
 
+function PersonaModal({ site, onClose }) {
+  return (
+    <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4" onClick={onClose}>
+      <div className="bg-white rounded-xl border border-gray-200 shadow-xl max-w-lg w-full p-6" onClick={e => e.stopPropagation()}>
+        <div className="flex items-center justify-between mb-4">
+          <h3 className="font-semibold text-gray-900">Persona Memory — {site.name}</h3>
+          <button onClick={onClose} className="text-gray-400 hover:text-gray-600 text-xl">×</button>
+        </div>
+        <div className="mb-4">
+          <div className="text-xs font-semibold text-gray-500 uppercase mb-1">Deskripsi Persona</div>
+          <p className="text-sm text-gray-700 bg-gray-50 rounded-lg p-3 whitespace-pre-wrap">
+            {site.persona_description || <em className="text-gray-400">Belum ada deskripsi persona.</em>}
+          </p>
+        </div>
+        {site.persona_memory && (
+          <div>
+            <div className="text-xs font-semibold text-gray-500 uppercase mb-1">Persona Memory (Kumulatif AI)</div>
+            <div className="text-sm text-gray-700 bg-blue-50 rounded-lg p-3 whitespace-pre-wrap max-h-56 overflow-y-auto">
+              {site.persona_memory}
+            </div>
+          </div>
+        )}
+        {!site.persona_memory && (
+          <p className="text-xs text-gray-400 italic">Persona memory akan terisi otomatis setelah artikel-artikel diterbitkan ke site ini.</p>
+        )}
+        <div className="mt-4 flex justify-end">
+          <button onClick={onClose} className="bg-gray-100 hover:bg-gray-200 text-gray-700 text-sm px-4 py-2 rounded-lg">Tutup</button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function SiteForm({ initial, onSave, onCancel }) {
   const [form, setForm] = useState(initial || { name:'', url:'', wordpress_api_url:'', wordpress_username:'', niche:'teknologi', persona_description:'' });
   const set = (k,v) => setForm(f => ({...f,[k]:v}));
@@ -61,6 +94,8 @@ export default function Sites() {
   const [editSite, setEditSite] = useState(null);
   const [testing, setTesting] = useState(null);
   const [testResult, setTestResult] = useState({});
+  const [toggling, setToggling] = useState(null);
+  const [personaSite, setPersonaSite] = useState(null);
 
   const load = async () => {
     const res = await sitesApi.list().catch(()=>({data:[]}));
@@ -76,7 +111,7 @@ export default function Sites() {
   };
 
   const handleDelete = async (id) => {
-    if (!confirm('Hapus site ini?')) return;
+    if (!confirm('Hapus site ini? Semua artikel terkait akan tetap ada.')) return;
     await sitesApi.delete(id);
     load();
   };
@@ -88,8 +123,24 @@ export default function Sites() {
     setTesting(null);
   };
 
+  const handleToggleStatus = async (site) => {
+    setToggling(site.id);
+    const newStatus = site.status === 'active' ? 'paused' : 'active';
+    await sitesApi.update(site.id, { status: newStatus }).catch(()=>{});
+    await load();
+    setToggling(null);
+  };
+
+  const handlePersonaPreview = async (site) => {
+    // Fetch full site data (includes persona_memory)
+    const res = await sitesApi.get(site.id).catch(()=>({ data: site }));
+    setPersonaSite(res.data || site);
+  };
+
   return (
     <div>
+      {personaSite && <PersonaModal site={personaSite} onClose={() => setPersonaSite(null)} />}
+
       <div className="flex items-center justify-between mb-6">
         <h2 className="text-xl font-bold text-gray-900">Sites ({siteList.length}/8)</h2>
         <button onClick={() => { setShowForm(true); setEditSite(null); }} className="bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium px-4 py-2 rounded-lg">+ Tambah Site</button>
@@ -119,10 +170,24 @@ export default function Sites() {
                     <td className="px-4 py-3 font-medium text-gray-800">{site.name}</td>
                     <td className="px-4 py-3 text-gray-500 max-w-xs truncate"><a href={site.url} target="_blank" rel="noopener" className="hover:text-blue-600">{site.url}</a></td>
                     <td className="px-4 py-3"><span className="bg-purple-100 text-purple-700 px-2 py-0.5 rounded-full text-xs">{site.niche||'umum'}</span></td>
-                    <td className="px-4 py-3"><span className={`px-2 py-0.5 rounded-full text-xs ${site.status==='active'?'bg-green-100 text-green-700':'bg-gray-100 text-gray-600'}`}>{site.status}</span></td>
                     <td className="px-4 py-3">
-                      <div className="flex gap-2">
+                      <button
+                        onClick={() => handleToggleStatus(site)}
+                        disabled={toggling === site.id}
+                        className={`px-2 py-0.5 rounded-full text-xs font-medium transition-colors cursor-pointer border ${
+                          site.status === 'active'
+                            ? 'bg-green-100 text-green-700 border-green-200 hover:bg-green-200'
+                            : 'bg-gray-100 text-gray-600 border-gray-200 hover:bg-gray-200'
+                        } ${toggling === site.id ? 'opacity-50' : ''}`}
+                        title={site.status === 'active' ? 'Klik untuk Pause' : 'Klik untuk Aktifkan'}
+                      >
+                        {toggling === site.id ? '...' : site.status === 'active' ? '● Aktif' : '○ Paused'}
+                      </button>
+                    </td>
+                    <td className="px-4 py-3">
+                      <div className="flex gap-2 flex-wrap">
                         <button onClick={() => { setEditSite(site); setShowForm(true); }} className="text-blue-600 hover:text-blue-800 text-xs">Edit</button>
+                        <button onClick={() => handlePersonaPreview(site)} className="text-purple-600 hover:text-purple-800 text-xs">Persona</button>
                         <button onClick={() => handleTest(site.id)} disabled={testing===site.id} className="text-green-600 hover:text-green-800 text-xs">
                           {testing===site.id ? 'Testing...' : 'Test WP'}
                         </button>

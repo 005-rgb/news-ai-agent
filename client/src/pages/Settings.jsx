@@ -1,7 +1,25 @@
 import React, { useEffect, useState, useCallback } from 'react';
-import { settings as settingsApi, auth } from '../lib/api';
+import { settings as settingsApi, auth, apiKeys } from '../lib/api';
 
 const TABS = ['Operasional', 'Prompt Templates', 'Keamanan', 'Sistem', 'Export'];
+
+const TIMEZONES = [
+  'Asia/Jakarta', 'Asia/Makassar', 'Asia/Jayapura',
+  'Asia/Singapore', 'Asia/Kuala_Lumpur', 'Asia/Bangkok',
+  'UTC', 'Asia/Tokyo', 'Asia/Shanghai',
+];
+
+const LLM_PROVIDERS = ['gemini','groq','deepseek','openrouter','mistral','together','cerebras','cohere'];
+const LLM_PROVIDER_INFO = {
+  gemini:     { name: 'Google Gemini',  desc: 'Primer — model gemini-1.5-flash default' },
+  groq:       { name: 'Groq',           desc: 'Llama-3.3-70b, very fast' },
+  deepseek:   { name: 'DeepSeek',       desc: 'deepseek-chat, OpenAI-compatible' },
+  openrouter: { name: 'OpenRouter',     desc: 'Multi-model gateway' },
+  mistral:    { name: 'Mistral AI',     desc: 'mistral-small' },
+  together:   { name: 'Together AI',    desc: 'Llama-3 series' },
+  cerebras:   { name: 'Cerebras',       desc: 'llama3.1-70b, ultra-fast inference' },
+  cohere:     { name: 'Cohere',         desc: 'command-r' },
+};
 
 const IMAGE_PROVIDERS = ['ai_generate', 'unsplash', 'pexels', 'placeholder'];
 const IMAGE_PROVIDER_INFO = {
@@ -60,11 +78,14 @@ export default function Settings({ onLogout }) {
   const [sysConfig, setSysConfig] = useState(null);
   const [sysForm, setSysForm] = useState({});
   const [imageChain, setImageChain] = useState(IMAGE_PROVIDERS);
+  const [llmChain, setLlmChain] = useState(LLM_PROVIDERS);
   const [sysLoading, setSysLoading] = useState(false);
   const [sysSaving, setSysSaving] = useState(false);
   const [sysMsg, setSysMsg] = useState(null);
   const [imageChainDirty, setImageChainDirty] = useState(false);
   const [imageSaving, setImageSaving] = useState(false);
+  const [llmChainDirty, setLlmChainDirty] = useState(false);
+  const [llmChainSaving, setLlmChainSaving] = useState(false);
 
   // ── Prompt templates state ─────────────────────────────────────────────────
   const [config, setConfig] = useState(null);
@@ -81,7 +102,11 @@ export default function Settings({ onLogout }) {
 
   const loadSysConfig = useCallback(async () => {
     setSysLoading(true);
-    const res = await settingsApi.systemConfig().catch(() => ({ data: {} }));
+    const [res, chainRes, llmOrderRes] = await Promise.all([
+      settingsApi.systemConfig().catch(() => ({ data: {} })),
+      settingsApi.imageChain().catch(() => ({ data: { chain: IMAGE_PROVIDERS } })),
+      apiKeys.order().catch(() => ({ data: { chain: LLM_PROVIDERS } })),
+    ]);
     const data = res.data || res;
     setSysConfig(data);
     setSysForm({
@@ -90,9 +115,10 @@ export default function Settings({ onLogout }) {
       eeat_score_threshold: data.eeat_score_threshold ?? 80,
       key_warning_threshold: data.key_warning_threshold ?? 80,
       human_review_enabled: data.human_review_enabled ?? false,
+      timezone: data.timezone ?? 'Asia/Jakarta',
     });
-    const chainRes = await settingsApi.imageChain().catch(() => ({ data: { chain: IMAGE_PROVIDERS } }));
     setImageChain(chainRes.data?.chain || IMAGE_PROVIDERS);
+    setLlmChain(llmOrderRes.data?.chain || LLM_PROVIDERS);
     setSysLoading(false);
   }, []);
 
@@ -127,6 +153,7 @@ export default function Settings({ onLogout }) {
         eeat_score_threshold: parseInt(sysForm.eeat_score_threshold),
         key_warning_threshold: parseInt(sysForm.key_warning_threshold),
         human_review_enabled: sysForm.human_review_enabled,
+        timezone: sysForm.timezone,
       });
       setSysMsg({ ok: true, text: 'Konfigurasi berhasil disimpan.' });
       await loadSysConfig();
@@ -146,6 +173,18 @@ export default function Settings({ onLogout }) {
       setSysMsg({ ok: false, text: err?.message || 'Gagal menyimpan.' });
     }
     setImageSaving(false);
+  };
+
+  const handleSaveLlmChain = async () => {
+    setLlmChainSaving(true);
+    try {
+      await apiKeys.saveOrder(llmChain);
+      setSysMsg({ ok: true, text: 'Urutan provider LLM berhasil disimpan.' });
+      setLlmChainDirty(false);
+    } catch (err) {
+      setSysMsg({ ok: false, text: err?.message || 'Gagal menyimpan urutan LLM.' });
+    }
+    setLlmChainSaving(false);
   };
 
   // ── Auth / export ──────────────────────────────────────────────────────────
@@ -358,6 +397,19 @@ export default function Settings({ onLogout }) {
                     </div>
                   </div>
 
+                  {/* Timezone */}
+                  <div>
+                    <label className="block text-xs font-semibold text-gray-600 mb-1">Timezone</label>
+                    <select
+                      value={sysForm.timezone || 'Asia/Jakarta'}
+                      onChange={e => setSysForm(f => ({ ...f, timezone: e.target.value }))}
+                      className="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    >
+                      {TIMEZONES.map(tz => <option key={tz} value={tz}>{tz}</option>)}
+                    </select>
+                    <p className="text-xs text-gray-400 mt-1">⚠️ Perubahan timezone efektif setelah server restart.</p>
+                  </div>
+
                   {/* Human Review Toggle */}
                   <div>
                     <label className="block text-xs font-semibold text-gray-600 mb-1">Human Review Mode</label>
@@ -393,6 +445,35 @@ export default function Settings({ onLogout }) {
                   </button>
                 </div>
               </form>
+
+              {/* LLM Fallback Chain */}
+              <div className="bg-white rounded-xl border border-gray-200 p-6">
+                <h3 className="font-semibold text-gray-800 mb-2">LLM Provider Fallback Chain</h3>
+                <p className="text-xs text-gray-500 mb-4">Urutan provider LLM untuk semua agent. Jika provider pertama exhausted, sistem otomatis fallback ke provider berikutnya.</p>
+                <ChainEditor
+                  chain={llmChain}
+                  allProviders={LLM_PROVIDERS}
+                  providerInfo={LLM_PROVIDER_INFO}
+                  title="Urutan Provider LLM"
+                  desc="↑↓ untuk ubah prioritas. Urutan ini sama dengan di halaman API Keys."
+                  onChange={(c) => { setLlmChain(c); setLlmChainDirty(true); }}
+                />
+                {llmChainDirty && (
+                  <div className="mt-3 flex gap-2 justify-end">
+                    <button
+                      onClick={() => { setLlmChain(LLM_PROVIDERS); setLlmChainDirty(false); }}
+                      className="text-sm text-gray-500 hover:text-gray-700 px-3 py-1.5 rounded-lg"
+                    >Reset</button>
+                    <button
+                      onClick={handleSaveLlmChain}
+                      disabled={llmChainSaving}
+                      className="bg-blue-600 hover:bg-blue-700 disabled:opacity-60 text-white text-sm font-medium px-4 py-1.5 rounded-lg"
+                    >
+                      {llmChainSaving ? 'Menyimpan...' : 'Simpan Urutan LLM'}
+                    </button>
+                  </div>
+                )}
+              </div>
 
               {/* Image Fallback Chain */}
               <div className="bg-white rounded-xl border border-gray-200 p-6">
