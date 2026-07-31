@@ -246,6 +246,36 @@ BEGIN
     ALTER TABLE usage_stats ADD CONSTRAINT usage_stats_date_site_id_key UNIQUE (date, site_id);
   END IF;
 END $$;
+
+-- ── 13. system_settings (Phase 7 — editable runtime config) ─────────────────
+CREATE TABLE IF NOT EXISTS system_settings (
+  key        TEXT PRIMARY KEY,
+  value      JSONB NOT NULL,
+  updated_at TIMESTAMPTZ DEFAULT NOW()
+);
+
+-- Seed default values (on conflict = keep existing)
+INSERT INTO system_settings (key, value) VALUES
+  ('humanizer_level',          '3'),
+  ('quality_score_threshold',  '75'),
+  ('eeat_score_threshold',     '80'),
+  ('key_warning_threshold',    '80'),
+  ('human_review_enabled',     'false'),
+  ('image_fallback_chain',     '["ai_generate","unsplash","pexels","placeholder"]')
+ON CONFLICT (key) DO NOTHING;
+
+-- ── Phase 7: add human_review columns to articles ────────────────────────────
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='articles' AND column_name='needs_human_review') THEN
+    ALTER TABLE articles ADD COLUMN needs_human_review BOOLEAN DEFAULT false;
+  END IF;
+END $$;
+
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='articles' AND column_name='human_review_notes') THEN
+    ALTER TABLE articles ADD COLUMN human_review_notes TEXT;
+  END IF;
+END $$;
 `;
 
 // ── Seed Data ─────────────────────────────────────────────────────────────────

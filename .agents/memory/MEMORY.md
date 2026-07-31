@@ -6,3 +6,4 @@
 - [Phase 4 Writing Standards](phase4-writing-standards.md) — selectWritingStandard()+getFormatChecklist() in promptTemplates.js; editor applies humanizer; DB seeds 7 templates
 - [Phase 5 Publisher & Image Pipeline](phase5-publisher.md) — Fotografer→SEO→Publisher full; qualityRater now enqueues IMAGE; no-WP-config graceful fallback to ready_to_publish
 - [Phase 6 Scheduler](phase6-scheduler.md) — Site crons from sites.config.posting_schedule; smartDelayMs ±15/+45min; source refresh 6h; reloadSiteCrons() needed after site changes
+- [Phase 7 Dashboard Full](phase7-dashboard.md) — All 8 menu fully real; Analytics has 7 tabs; Settings has Operasional tab (humanizer slider, thresholds, image chain editor); Articles has Human Review approve/reject; Rapat has 7-day × sites calendar grid

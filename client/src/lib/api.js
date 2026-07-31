@@ -29,12 +29,17 @@ export const auth = {
 
 // ── Analytics ─────────────────────────────────────────────────────────────────
 export const analytics = {
-  overview:  ()          => api.get('/analytics/overview'),
-  production:(params)    => api.get('/analytics/production', { params }),
-  pipeline:  ()          => api.get('/analytics/pipeline'),
-  providers: ()          => api.get('/analytics/providers'),
-  logs:      (params)    => api.get('/analytics/logs', { params }),
-  activity:  ()          => api.get('/analytics/activity'),
+  overview:   ()          => api.get('/analytics/overview'),
+  production: (params)    => api.get('/analytics/production', { params }),
+  pipeline:   ()          => api.get('/analytics/pipeline'),
+  providers:  ()          => api.get('/analytics/providers'),
+  logs:       (params)    => api.get('/analytics/logs', { params }),
+  activity:   ()          => api.get('/analytics/activity'),
+  eeAtWeekly: ()          => api.get('/analytics/eeat-weekly'),
+  prompts:    ()          => api.get('/analytics/prompts'),
+  evergreen:  ()          => api.get('/analytics/evergreen'),
+  keyUsage:   ()          => api.get('/analytics/key-usage'),
+  errorRate:  ()          => api.get('/analytics/error-rate'),
 };
 
 // ── Sites ─────────────────────────────────────────────────────────────────────
@@ -72,11 +77,14 @@ export const sources = {
 
 // ── Articles ──────────────────────────────────────────────────────────────────
 export const articles = {
-  list:         (params)  => api.get('/articles', { params }),
-  get:          (id)      => api.get(`/articles/${id}`),
-  delete:       (id)      => api.delete(`/articles/${id}`, { data: { confirm: true } }),
-  forcePublish: (id)      => api.post(`/articles/${id}/force-publish`),
-  regenerate:   (id,step) => api.post(`/articles/${id}/regenerate`, { from_step: step }),
+  list:         (params)       => api.get('/articles', { params }),
+  get:          (id)           => api.get(`/articles/${id}`),
+  delete:       (id)           => api.delete(`/articles/${id}`, { data: { confirm: true } }),
+  forcePublish: (id)           => api.post(`/articles/${id}/force-publish`),
+  regenerate:   (id, step)     => api.post(`/articles/${id}/regenerate`, { from_step: step }),
+  approve:      (id)           => api.post(`/articles/${id}/approve`),
+  reject:       (id, notes)    => api.post(`/articles/${id}/reject`, { notes }),
+  flagReview:   (id, data)     => api.patch(`/articles/${id}/flag-review`, data),
 };
 
 // ── Queue ─────────────────────────────────────────────────────────────────────
@@ -108,6 +116,10 @@ export const rapat = {
 // ── Settings ──────────────────────────────────────────────────────────────────
 export const settings = {
   get:                 ()          => api.get('/settings'),
+  systemConfig:        ()          => api.get('/settings/system-config'),
+  updateSystemConfig:  (data)      => api.patch('/settings/system-config', data),
+  imageChain:          ()          => api.get('/settings/image-chain'),
+  saveImageChain:      (chain)     => api.put('/settings/image-chain', { chain }),
   export:              ()          => api.get('/settings/export'),
   changePassword:      (data)      => api.post('/settings/change-password', data),
   promptTemplates:     ()          => api.get('/settings/prompt-templates'),

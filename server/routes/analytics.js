@@ -116,4 +116,128 @@ router.get('/activity', async (req, res, next) => {
   } catch (err) { next(err); }
 });
 
+// GET /api/v1/analytics/eeat-weekly — avg E-E-A-T and quality score per week (last 8 weeks)
+router.get('/eeat-weekly', async (req, res, next) => {
+  try {
+    const { rows } = await query(
+      `SELECT
+         DATE_TRUNC('week', published_at)::date            AS week_start,
+         ROUND(AVG(eeat_score)::numeric, 1)                AS avg_eeat,
+         ROUND(AVG(quality_score)::numeric, 1)             AS avg_quality,
+         COUNT(*)                                          AS article_count
+       FROM articles
+       WHERE published_at > NOW() - INTERVAL '8 weeks'
+         AND eeat_score IS NOT NULL
+       GROUP BY 1
+       ORDER BY 1`
+    );
+    res.json({ success: true, data: rows });
+  } catch (err) { next(err); }
+});
+
+// GET /api/v1/analytics/prompts — prompt evolution table
+router.get('/prompts', async (req, res, next) => {
+  try {
+    const { rows } = await query(
+      `SELECT
+         pv.id, pv.name, pv.agent_type, pv.category, pv.format_key,
+         pv.is_champion, pv.is_active, pv.status,
+         pv.performance_score, pv.sample_count,
+         pv.created_at,
+         ROUND(AVG(a.quality_score)::numeric, 1) AS avg_quality,
+         ROUND(AVG(a.eeat_score)::numeric, 1)    AS avg_eeat,
+         COUNT(a.id)                              AS real_sample_count
+       FROM prompt_versions pv
+       LEFT JOIN articles a ON a.prompt_version = pv.name
+       GROUP BY pv.id
+       ORDER BY pv.is_champion DESC, avg_quality DESC NULLS LAST, pv.created_at DESC`
+    );
+    res.json({ success: true, data: rows });
+  } catch (err) { next(err); }
+});
+
+// GET /api/v1/analytics/evergreen — evergreen article candidates
+router.get('/evergreen', async (req, res, next) => {
+  try {
+    const { rows } = await query(
+      `SELECT a.id, a.title, a.format, a.category, a.quality_score, a.eeat_score,
+              a.published_at, a.wordpress_url, s.name AS site_name,
+              a.is_evergreen_candidate,
+              EXTRACT(DAY FROM NOW() - a.published_at)::int AS days_since_publish
+       FROM articles a
+       LEFT JOIN sites s ON s.id = a.site_id
+       WHERE a.status = 'published'
+         AND a.published_at < NOW() - INTERVAL '30 days'
+         AND a.format IN ('evergreen','feature_opini','jurnal_review')
+       ORDER BY a.eeat_score DESC NULLS LAST, a.quality_score DESC NULLS LAST
+       LIMIT 30`
+    );
+    res.json({ success: true, data: rows });
+  } catch (err) { next(err); }
+});
+
+// GET /api/v1/analytics/key-usage — API key daily usage per provider (last 14 days)
+router.get('/key-usage', async (req, res, next) => {
+  try {
+    const { rows } = await query(
+      `SELECT
+         DATE(created_at)            AS date,
+         provider,
+         SUM(usage_today)            AS total_usage,
+         COUNT(*)                    AS key_count,
+         SUM(daily_limit)            AS total_limit
+       FROM (
+         SELECT
+           NOW() AS created_at,
+           provider,
+           usage_today,
+           daily_limit
+         FROM api_keys
+         WHERE provider != '_config'
+       ) sub
+       GROUP BY DATE(created_at), provider
+       ORDER BY date DESC, provider`
+    );
+
+    // Also fetch historical from usage_stats if available
+    const { rows: histRows } = await query(
+      `SELECT
+         us.date,
+         ak.provider,
+         SUM(us.tokens_used)    AS total_usage,
+         SUM(us.articles_generated) AS articles
+       FROM usage_stats us
+       JOIN api_keys ak ON ak.id = us.api_key_id
+       WHERE us.date > NOW() - INTERVAL '14 days'
+         AND ak.provider != '_config'
+       GROUP BY us.date, ak.provider
+       ORDER BY us.date DESC, ak.provider`
+    );
+
+    res.json({ success: true, data: rows, history: histRows });
+  } catch (err) { next(err); }
+});
+
+// GET /api/v1/analytics/error-rate — failed jobs per pipeline type (last 7 days)
+router.get('/error-rate', async (req, res, next) => {
+  try {
+    const { rows } = await query(
+      `SELECT
+         job_type,
+         COUNT(*) FILTER (WHERE status IN ('failed','dead'))  AS failed_count,
+         COUNT(*) FILTER (WHERE status = 'done')              AS success_count,
+         COUNT(*)                                             AS total_count,
+         ROUND(
+           100.0 * COUNT(*) FILTER (WHERE status IN ('failed','dead')) / NULLIF(COUNT(*), 0),
+           1
+         ) AS error_rate_pct
+       FROM job_queue
+       WHERE created_at > NOW() - INTERVAL '7 days'
+       GROUP BY job_type
+       ORDER BY failed_count DESC`
+    );
+    res.json({ success: true, data: rows });
+  } catch (err) { next(err); }
+});
+
 module.exports = router;

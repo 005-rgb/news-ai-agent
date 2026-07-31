@@ -25,7 +25,8 @@ export default function Articles() {
   const [total, setTotal]     = useState(0);
   const [sites, setSites]     = useState([]);
   const [filters, setFilters] = useState({ site_id:'', status:'', page:1 });
-  const [selected, setSelected] = useState(null);  // full article from GET /articles/:id
+  const [viewMode, setViewMode] = useState('all'); // 'all' | 'human_review'
+  const [selected, setSelected] = useState(null);
   const [detailLoading, setDetailLoading] = useState(false);
   const [loading, setLoading] = useState(true);
   const [runForm, setRunForm] = useState(false);
@@ -36,11 +37,19 @@ export default function Articles() {
   const [regenLoading, setRegenLoading] = useState(false);
   const [contentExpanded, setContentExpanded] = useState(false);
   const [activeTab, setActiveTab] = useState('content'); // 'content' | 'brief' | 'scores'
+  const [rejectNotes, setRejectNotes] = useState('');
+  const [rejectMode, setRejectMode] = useState(false);
+  const [actionLoading, setActionLoading] = useState(false);
+  const [actionMsg, setActionMsg] = useState(null);
 
   const load = async () => {
     setLoading(true);
+    const params = viewMode === 'human_review'
+      ? { human_review: 'true', limit: 20, page: filters.page }
+      : { ...filters, limit: 20 };
+
     const [ar, sl] = await Promise.all([
-      articlesApi.list({ ...filters, limit: 20 }).catch(() => ({ data: [], pagination: { total: 0 } })),
+      articlesApi.list(params).catch(() => ({ data: [], pagination: { total: 0 } })),
       sitesApi.list().catch(() => ({ data: [] })),
     ]);
     setList(ar.data || []);
@@ -49,23 +58,25 @@ export default function Articles() {
     setLoading(false);
   };
 
-  // Reset page to 1 when changing filters (not when changing page itself)
   const setFilter = (key, value) => {
     setFilters(f => ({ ...f, [key]: value, ...(key !== 'page' ? { page: 1 } : {}) }));
   };
 
-  useEffect(() => { load(); }, [filters.site_id, filters.status, filters.page]);
+  useEffect(() => { load(); }, [filters.site_id, filters.status, filters.page, viewMode]);
 
   const handleSelectArticle = async (row) => {
     setSelected(null);
     setDetailLoading(true);
     setActiveTab('content');
     setContentExpanded(false);
+    setActionMsg(null);
+    setRejectMode(false);
+    setRejectNotes('');
     try {
       const res = await articlesApi.get(row.id);
       setSelected(res.data || row);
     } catch {
-      setSelected(row); // fallback to list data
+      setSelected(row);
     }
     setDetailLoading(false);
   };
@@ -98,7 +109,6 @@ export default function Articles() {
     setRegenLoading(true);
     try {
       await articlesApi.regenerate(selected.id, regenStep);
-      // Refresh detail
       const res = await articlesApi.get(selected.id);
       setSelected(res.data || selected);
       load();
@@ -110,17 +120,54 @@ export default function Articles() {
   };
 
   const handleForcePublish = async () => {
+    setActionLoading(true);
     try {
       await articlesApi.forcePublish(selected.id);
       const res = await articlesApi.get(selected.id);
       setSelected(res.data || selected);
+      setActionMsg({ ok: true, text: 'Force publish job berhasil di-queue.' });
       load();
     } catch (err) {
-      alert(err?.message || 'Force publish gagal.');
+      setActionMsg({ ok: false, text: err?.message || 'Force publish gagal.' });
+    } finally {
+      setActionLoading(false);
     }
   };
 
-  // Extract content to show: prefer content, fallback to content_versions.mainArticle
+  const handleApprove = async () => {
+    if (!selected) return;
+    setActionLoading(true);
+    try {
+      await articlesApi.approve(selected.id);
+      setActionMsg({ ok: true, text: 'Artikel disetujui dan dijadwalkan untuk publish!' });
+      const res = await articlesApi.get(selected.id);
+      setSelected(res.data || selected);
+      load();
+    } catch (err) {
+      setActionMsg({ ok: false, text: err?.message || 'Gagal menyetujui artikel.' });
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+  const handleReject = async () => {
+    if (!selected) return;
+    setActionLoading(true);
+    try {
+      await articlesApi.reject(selected.id, rejectNotes || 'Ditolak oleh editor');
+      setActionMsg({ ok: true, text: 'Artikel ditolak dan dikembalikan ke draft.' });
+      setRejectMode(false);
+      setRejectNotes('');
+      const res = await articlesApi.get(selected.id);
+      setSelected(res.data || selected);
+      load();
+    } catch (err) {
+      setActionMsg({ ok: false, text: err?.message || 'Gagal menolak artikel.' });
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
   const getArticleContent = (art) => {
     if (!art) return '';
     if (art.content) return art.content;
@@ -132,43 +179,60 @@ export default function Articles() {
 
   const getBriefData = (art) => {
     if (!art) return null;
-    try {
-      return typeof art.brief_data === 'string' ? JSON.parse(art.brief_data) : art.brief_data;
-    } catch { return null; }
+    try { return typeof art.brief_data === 'string' ? JSON.parse(art.brief_data) : art.brief_data; }
+    catch { return null; }
   };
 
   const getContentVersions = (art) => {
     if (!art) return null;
-    try {
-      return typeof art.content_versions === 'string' ? JSON.parse(art.content_versions) : art.content_versions;
-    } catch { return null; }
+    try { return typeof art.content_versions === 'string' ? JSON.parse(art.content_versions) : art.content_versions; }
+    catch { return null; }
   };
 
   const content = getArticleContent(selected);
   const brief   = getBriefData(selected);
   const cv      = getContentVersions(selected);
+  const isHumanReviewArticle = selected?.needs_human_review ||
+    ['ready_to_publish','scheduled'].includes(selected?.status);
 
   return (
     <div className="flex gap-4 h-full">
       {/* ── List panel ─────────────────────────────────────────────────────── */}
       <div className="flex-1 min-w-0">
-        <div className="flex items-center justify-between mb-4">
-          <h2 className="text-xl font-bold text-gray-900">Articles ({total})</h2>
-          <button
-            onClick={() => { setRunForm(s => !s); setRunError(''); }}
-            className="bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium px-4 py-2 rounded-lg"
-          >
-            ▶ Jalankan Pipeline
-          </button>
+        <div className="flex items-center justify-between mb-4 flex-wrap gap-2">
+          <h2 className="text-xl font-bold text-gray-900">
+            Articles
+            {viewMode === 'human_review' ? ' — Human Review' : ` (${total})`}
+          </h2>
+          <div className="flex gap-2">
+            <button
+              onClick={() => { setViewMode(m => m === 'human_review' ? 'all' : 'human_review'); setSelected(null); setFilters({ site_id:'', status:'', page:1 }); }}
+              className={`text-sm font-medium px-3 py-2 rounded-lg border transition-colors ${viewMode === 'human_review' ? 'bg-amber-600 text-white border-amber-600' : 'bg-white border-gray-300 text-gray-600 hover:bg-amber-50 hover:text-amber-700 hover:border-amber-300'}`}
+            >
+              👤 Human Review {viewMode !== 'human_review' && total > 0 ? '' : ''}
+            </button>
+            <button
+              onClick={() => { setRunForm(s => !s); setRunError(''); }}
+              className="bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium px-4 py-2 rounded-lg"
+            >
+              ▶ Jalankan Pipeline
+            </button>
+          </div>
         </div>
+
+        {/* Human review info banner */}
+        {viewMode === 'human_review' && (
+          <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 mb-4">
+            <p className="text-sm text-amber-800 font-medium">👤 Mode Human Review</p>
+            <p className="text-xs text-amber-600 mt-0.5">Menampilkan artikel yang butuh persetujuan manusia sebelum dipublikasikan. Klik artikel untuk Approve atau Reject.</p>
+          </div>
+        )}
 
         {/* Run pipeline form */}
         {runForm && (
           <form onSubmit={handleRun} className="bg-blue-50 border border-blue-200 rounded-xl p-4 mb-4">
             <h3 className="font-semibold text-blue-800 mb-3">Jalankan Pipeline Baru</h3>
-            {runError && (
-              <div className="mb-3 bg-red-50 border border-red-200 text-red-700 text-xs rounded-lg px-3 py-2">{runError}</div>
-            )}
+            {runError && <div className="mb-3 bg-red-50 border border-red-200 text-red-700 text-xs rounded-lg px-3 py-2">{runError}</div>}
             <div className="grid grid-cols-2 gap-3">
               <div className="col-span-2">
                 <label className="text-xs font-medium text-gray-600 block mb-1">Topik *</label>
@@ -182,76 +246,54 @@ export default function Articles() {
               </div>
               <div>
                 <label className="text-xs font-medium text-gray-600 block mb-1">Site *</label>
-                <select
-                  value={runData.site_id}
-                  onChange={e => setRunData(f => ({ ...f, site_id: e.target.value }))}
-                  required
-                  className="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                >
+                <select value={runData.site_id} onChange={e => setRunData(f => ({ ...f, site_id: e.target.value }))} required
+                  className="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
                   <option value="">Pilih site</option>
                   {sites.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
                 </select>
               </div>
               <div>
                 <label className="text-xs font-medium text-gray-600 block mb-1">Kategori</label>
-                <select
-                  value={runData.category}
-                  onChange={e => setRunData(f => ({ ...f, category: e.target.value }))}
-                  className="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                >
+                <select value={runData.category} onChange={e => setRunData(f => ({ ...f, category: e.target.value }))}
+                  className="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
                   {CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
                 </select>
               </div>
               <div className="col-span-2">
                 <label className="text-xs font-medium text-gray-600 block mb-1">Format</label>
-                <select
-                  value={runData.format}
-                  onChange={e => setRunData(f => ({ ...f, format: e.target.value }))}
-                  className="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                >
+                <select value={runData.format} onChange={e => setRunData(f => ({ ...f, format: e.target.value }))}
+                  className="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
                   {FORMATS.map(fm => <option key={fm} value={fm}>{fm.replace(/_/g,' ')}</option>)}
                 </select>
               </div>
             </div>
             <div className="flex gap-2 mt-3">
-              <button
-                type="submit"
-                disabled={runLoading}
-                className="bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white text-sm font-medium px-4 py-2 rounded-lg"
-              >
+              <button type="submit" disabled={runLoading}
+                className="bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white text-sm font-medium px-4 py-2 rounded-lg">
                 {runLoading ? 'Memulai...' : '▶ Mulai Pipeline'}
               </button>
-              <button
-                type="button"
-                onClick={() => { setRunForm(false); setRunError(''); }}
-                className="bg-white border text-gray-600 hover:bg-gray-50 text-sm px-4 py-2 rounded-lg"
-              >
-                Batal
-              </button>
+              <button type="button" onClick={() => { setRunForm(false); setRunError(''); }}
+                className="bg-white border text-gray-600 hover:bg-gray-50 text-sm px-4 py-2 rounded-lg">Batal</button>
             </div>
           </form>
         )}
 
-        {/* Filters */}
-        <div className="flex gap-2 mb-3 flex-wrap">
-          <select
-            value={filters.site_id}
-            onChange={e => setFilter('site_id', e.target.value)}
-            className="border rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-          >
-            <option value="">Semua site</option>
-            {sites.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
-          </select>
-          <select
-            value={filters.status}
-            onChange={e => setFilter('status', e.target.value)}
-            className="border rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-          >
-            <option value="">Semua status</option>
-            {Object.keys(STATUS_COLORS).map(s => <option key={s} value={s}>{s}</option>)}
-          </select>
-          <button onClick={load} className="text-sm text-blue-600 hover:text-blue-800 px-2">🔄</button>
-        </div>
+        {/* Filters — only in 'all' mode */}
+        {viewMode === 'all' && (
+          <div className="flex gap-2 mb-3 flex-wrap">
+            <select value={filters.site_id} onChange={e => setFilter('site_id', e.target.value)}
+              className="border rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+              <option value="">Semua site</option>
+              {sites.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+            </select>
+            <select value={filters.status} onChange={e => setFilter('status', e.target.value)}
+              className="border rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+              <option value="">Semua status</option>
+              {Object.keys(STATUS_COLORS).map(s => <option key={s} value={s}>{s}</option>)}
+            </select>
+            <button onClick={load} className="text-sm text-blue-600 hover:text-blue-800 px-2">🔄</button>
+          </div>
+        )}
 
         {/* Table */}
         <div className="bg-white rounded-xl border border-gray-200 overflow-hidden">
@@ -259,9 +301,12 @@ export default function Articles() {
             <div className="p-12 text-center text-gray-400 text-sm">Memuat...</div>
           ) : list.length === 0 ? (
             <div className="p-12 text-center text-gray-400">
-              <div className="text-4xl mb-2">📰</div>
-              <p className="text-sm">Belum ada artikel.</p>
-              <p className="text-xs mt-1">Klik <strong>▶ Jalankan Pipeline</strong> untuk memulai pipeline.</p>
+              <div className="text-4xl mb-2">{viewMode === 'human_review' ? '👤' : '📰'}</div>
+              <p className="text-sm">
+                {viewMode === 'human_review'
+                  ? 'Tidak ada artikel menunggu review. Semua artikel sudah ditangani!'
+                  : 'Belum ada artikel.'}
+              </p>
             </div>
           ) : (
             <table className="w-full text-sm">
@@ -274,13 +319,11 @@ export default function Articles() {
               </thead>
               <tbody className="divide-y divide-gray-100">
                 {list.map(a => (
-                  <tr
-                    key={a.id}
-                    onClick={() => handleSelectArticle(a)}
-                    className={`hover:bg-gray-50 cursor-pointer ${selected?.id === a.id ? 'bg-blue-50' : ''}`}
-                  >
+                  <tr key={a.id} onClick={() => handleSelectArticle(a)}
+                    className={`hover:bg-gray-50 cursor-pointer ${selected?.id === a.id ? 'bg-blue-50' : ''} ${a.needs_human_review ? 'border-l-2 border-l-amber-400' : ''}`}>
                     <td className="px-3 py-3 text-gray-800 font-medium max-w-xs">
                       <div className="truncate text-xs">{a.title || '(Dalam proses...)'}</div>
+                      {a.needs_human_review && <div className="text-xs text-amber-600 mt-0.5">👤 Butuh review</div>}
                     </td>
                     <td className="px-3 py-3 text-gray-500 text-xs">{a.site_name || '—'}</td>
                     <td className="px-3 py-3 text-gray-500 text-xs">{a.format?.replace(/_/g,' ') || '—'}</td>
@@ -289,12 +332,8 @@ export default function Articles() {
                         {a.status}
                       </span>
                     </td>
-                    <td className="px-3 py-3 text-gray-700 text-xs font-medium">
-                      {a.quality_score ? `${a.quality_score}` : '—'}
-                    </td>
-                    <td className="px-3 py-3 text-gray-700 text-xs font-medium">
-                      {a.eeat_score ? `${a.eeat_score}` : '—'}
-                    </td>
+                    <td className="px-3 py-3 text-gray-700 text-xs font-medium">{a.quality_score ? `${a.quality_score}` : '—'}</td>
+                    <td className="px-3 py-3 text-gray-700 text-xs font-medium">{a.eeat_score ? `${a.eeat_score}` : '—'}</td>
                     <td className="px-3 py-3 text-gray-400 text-xs">
                       {new Date(a.created_at).toLocaleString('id-ID', { dateStyle:'short', timeStyle:'short' })}
                     </td>
@@ -303,22 +342,13 @@ export default function Articles() {
               </tbody>
             </table>
           )}
-          {/* Pagination */}
           {total > 20 && (
             <div className="flex justify-center gap-2 p-3 border-t border-gray-100">
-              <button
-                disabled={filters.page <= 1}
-                onClick={() => setFilter('page', filters.page - 1)}
-                className="px-3 py-1 text-sm border rounded disabled:opacity-40"
-              >‹ Prev</button>
-              <span className="px-3 py-1 text-sm text-gray-500">
-                {filters.page} / {Math.ceil(total / 20)}
-              </span>
-              <button
-                disabled={filters.page >= Math.ceil(total / 20)}
-                onClick={() => setFilter('page', filters.page + 1)}
-                className="px-3 py-1 text-sm border rounded disabled:opacity-40"
-              >Next ›</button>
+              <button disabled={filters.page <= 1} onClick={() => setFilter('page', filters.page - 1)}
+                className="px-3 py-1 text-sm border rounded disabled:opacity-40">‹ Prev</button>
+              <span className="px-3 py-1 text-sm text-gray-500">{filters.page} / {Math.ceil(total / 20)}</span>
+              <button disabled={filters.page >= Math.ceil(total / 20)} onClick={() => setFilter('page', filters.page + 1)}
+                className="px-3 py-1 text-sm border rounded disabled:opacity-40">Next ›</button>
             </div>
           )}
         </div>
@@ -343,24 +373,78 @@ export default function Articles() {
                   <span className={`px-2 py-0.5 rounded-full text-xs font-medium ${STATUS_COLORS[selected.status] || 'bg-gray-100'}`}>
                     {selected.status}
                   </span>
-                  {selected.format && (
-                    <span className="text-xs text-gray-500">{selected.format.replace(/_/g,' ')}</span>
-                  )}
-                  {selected.category && (
-                    <span className="text-xs text-gray-400">#{selected.category}</span>
-                  )}
+                  {selected.format && <span className="text-xs text-gray-500">{selected.format.replace(/_/g,' ')}</span>}
+                  {selected.needs_human_review && <span className="text-xs bg-amber-100 text-amber-700 px-1.5 py-0.5 rounded">👤 Review</span>}
                 </div>
+                {selected.human_review_notes && (
+                  <div className="mt-2 text-xs text-red-600 bg-red-50 rounded px-2 py-1.5">
+                    📝 {selected.human_review_notes}
+                  </div>
+                )}
               </div>
+
+              {/* Action message */}
+              {actionMsg && (
+                <div className={`mx-4 mt-3 text-xs rounded px-3 py-2 flex-shrink-0 ${actionMsg.ok ? 'bg-green-50 text-green-700' : 'bg-red-50 text-red-700'}`}>
+                  {actionMsg.text}
+                </div>
+              )}
+
+              {/* Human review approve/reject bar */}
+              {isHumanReviewArticle && !rejectMode && (
+                <div className="px-4 pt-3 pb-1 flex-shrink-0 bg-amber-50 border-b border-amber-100">
+                  <p className="text-xs text-amber-700 font-medium mb-2">👤 Artikel ini menunggu persetujuan manusia</p>
+                  <div className="flex gap-2">
+                    <button
+                      onClick={handleApprove}
+                      disabled={actionLoading}
+                      className="flex-1 bg-green-600 hover:bg-green-700 disabled:opacity-50 text-white text-xs font-medium px-3 py-2 rounded-lg"
+                    >
+                      {actionLoading ? '...' : '✓ Approve & Publish'}
+                    </button>
+                    <button
+                      onClick={() => setRejectMode(true)}
+                      disabled={actionLoading}
+                      className="flex-1 bg-red-100 hover:bg-red-200 text-red-700 text-xs font-medium px-3 py-2 rounded-lg"
+                    >
+                      ✕ Reject
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {/* Reject form */}
+              {rejectMode && (
+                <div className="px-4 pt-3 pb-2 flex-shrink-0 bg-red-50 border-b border-red-100">
+                  <p className="text-xs font-medium text-red-700 mb-1">Catatan penolakan (opsional)</p>
+                  <textarea
+                    value={rejectNotes}
+                    onChange={e => setRejectNotes(e.target.value)}
+                    rows={2}
+                    placeholder="Alasan penolakan..."
+                    className="w-full border border-red-200 rounded px-2 py-1 text-xs focus:outline-none"
+                  />
+                  <div className="flex gap-2 mt-2">
+                    <button onClick={handleReject} disabled={actionLoading}
+                      className="flex-1 bg-red-600 hover:bg-red-700 disabled:opacity-50 text-white text-xs font-medium py-1.5 rounded-lg">
+                      {actionLoading ? '...' : 'Konfirmasi Reject'}
+                    </button>
+                    <button onClick={() => setRejectMode(false)} className="text-gray-500 text-xs px-3 py-1.5 rounded-lg border">Batal</button>
+                  </div>
+                </div>
+              )}
 
               {/* Tabs */}
               <div className="flex border-b border-gray-100 flex-shrink-0">
-                {['content','brief','scores'].map(tab => (
-                  <button
-                    key={tab}
-                    onClick={() => setActiveTab(tab)}
-                    className={`flex-1 py-2 text-xs font-medium capitalize ${activeTab === tab ? 'text-blue-600 border-b-2 border-blue-600' : 'text-gray-500 hover:text-gray-700'}`}
-                  >
-                    {tab === 'content' ? 'Konten' : tab === 'brief' ? 'Brief Riset' : 'Skor & Meta'}
+                {[
+                  { id: 'content', label: 'Konten' },
+                  { id: 'versions', label: 'Versi' },
+                  { id: 'brief', label: 'Brief' },
+                  { id: 'scores', label: 'Skor & Meta' },
+                ].map(tab => (
+                  <button key={tab.id} onClick={() => setActiveTab(tab.id)}
+                    className={`flex-1 py-2 text-xs font-medium ${activeTab === tab.id ? 'text-blue-600 border-b-2 border-blue-600' : 'text-gray-500 hover:text-gray-700'}`}>
+                    {tab.label}
                   </button>
                 ))}
               </div>
@@ -377,44 +461,25 @@ export default function Articles() {
                           <span className="text-xs font-medium text-gray-600">
                             Artikel ({cv?.wordCount ? `${cv.wordCount} kata` : `~${Math.round(content.split(/\s+/).length)} kata`})
                           </span>
-                          <button
-                            onClick={() => setContentExpanded(e => !e)}
-                            className="text-xs text-blue-600 hover:text-blue-800"
-                          >
+                          <button onClick={() => setContentExpanded(e => !e)} className="text-xs text-blue-600 hover:text-blue-800">
                             {contentExpanded ? 'Ringkas' : 'Tampilkan semua'}
                           </button>
                         </div>
                         <div className={`text-xs text-gray-700 leading-relaxed whitespace-pre-wrap ${contentExpanded ? '' : 'line-clamp-12'}`}>
                           {content}
                         </div>
-
-                        {/* Social Caption */}
                         {cv?.socialCaption && (
                           <div className="mt-3 pt-3 border-t border-gray-100">
-                            <div className="text-xs font-medium text-gray-600 mb-1">Caption Media Sosial</div>
+                            <div className="text-xs font-medium text-gray-600 mb-1">📱 Caption Media Sosial</div>
                             <div className="text-xs text-gray-600 bg-gray-50 rounded p-2">{cv.socialCaption}</div>
                           </div>
                         )}
-
-                        {/* Key Takeaways */}
                         {cv?.keyTakeaways?.length > 0 && (
                           <div className="mt-3 pt-3 border-t border-gray-100">
-                            <div className="text-xs font-medium text-gray-600 mb-1">Key Takeaways</div>
+                            <div className="text-xs font-medium text-gray-600 mb-1">🔑 Key Takeaways</div>
                             <ul className="text-xs text-gray-600 space-y-1">
-                              {cv.keyTakeaways.map((t, i) => (
-                                <li key={i} className="flex gap-1.5"><span className="text-blue-400 flex-shrink-0">•</span>{t}</li>
-                              ))}
+                              {cv.keyTakeaways.map((t, i) => <li key={i} className="flex gap-1.5"><span className="text-blue-400 flex-shrink-0">•</span>{t}</li>)}
                             </ul>
-                          </div>
-                        )}
-
-                        {/* Image placeholders */}
-                        {cv?.imagePlaceholders?.length > 0 && (
-                          <div className="mt-3 pt-3 border-t border-gray-100">
-                            <div className="text-xs font-medium text-gray-600 mb-1">Placeholder Gambar</div>
-                            {cv.imagePlaceholders.map((p, i) => (
-                              <div key={i} className="text-xs text-gray-500 bg-orange-50 rounded px-2 py-1 mb-1">{p}</div>
-                            ))}
                           </div>
                         )}
                       </>
@@ -423,6 +488,80 @@ export default function Articles() {
                         {['researching','writing'].includes(selected.status)
                           ? 'Konten sedang dibuat oleh pipeline...'
                           : 'Konten belum tersedia.'}
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* Versions tab — semua 4 versi */}
+                {activeTab === 'versions' && (
+                  <div className="space-y-4">
+                    {/* Main article */}
+                    {cv?.mainArticle && (
+                      <div>
+                        <div className="text-xs font-semibold text-gray-700 mb-1 flex items-center gap-1">
+                          📰 Artikel Utama
+                          <span className="text-gray-400 font-normal">({Math.round(cv.mainArticle.split(/\s+/).length)} kata)</span>
+                        </div>
+                        <div className="text-xs text-gray-700 bg-gray-50 rounded p-2 max-h-36 overflow-y-auto whitespace-pre-wrap leading-relaxed">
+                          {cv.mainArticle}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* FAQ version */}
+                    {cv?.faqVersion && (
+                      <div>
+                        <div className="text-xs font-semibold text-gray-700 mb-1">❓ Versi FAQ</div>
+                        <div className="text-xs text-gray-700 bg-blue-50 rounded p-2 max-h-36 overflow-y-auto whitespace-pre-wrap leading-relaxed">
+                          {cv.faqVersion}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Summary */}
+                    {cv?.summary && (
+                      <div>
+                        <div className="text-xs font-semibold text-gray-700 mb-1">📝 Ringkasan Key Takeaways</div>
+                        <div className="text-xs text-gray-700 bg-green-50 rounded p-2 whitespace-pre-wrap">
+                          {cv.summary}
+                        </div>
+                      </div>
+                    )}
+
+                    {/* Social caption */}
+                    {cv?.socialCaption && (
+                      <div>
+                        <div className="text-xs font-semibold text-gray-700 mb-1">📱 Caption Media Sosial</div>
+                        <div className="text-xs text-gray-700 bg-purple-50 rounded p-2">{cv.socialCaption}</div>
+                      </div>
+                    )}
+
+                    {!cv?.mainArticle && !cv?.faqVersion && !cv?.summary && !cv?.socialCaption && (
+                      <div className="text-xs text-gray-400 text-center py-8">
+                        Versi konten belum tersedia. Pipeline belum selesai tahap WRITE.
+                      </div>
+                    )}
+
+                    {/* Image placeholders */}
+                    {cv?.imagePlaceholders?.length > 0 && (
+                      <div>
+                        <div className="text-xs font-semibold text-gray-700 mb-1">🖼 Placeholder Gambar</div>
+                        {cv.imagePlaceholders.map((p, i) => (
+                          <div key={i} className="text-xs text-gray-500 bg-orange-50 rounded px-2 py-1 mb-1">{p}</div>
+                        ))}
+                      </div>
+                    )}
+
+                    {/* Change log */}
+                    {cv?.changeLog?.length > 0 && (
+                      <div>
+                        <div className="text-xs font-semibold text-gray-700 mb-1">✏️ Editor Changelog</div>
+                        <ul className="space-y-0.5">
+                          {cv.changeLog.map((c, i) => (
+                            <li key={i} className="text-xs text-gray-600 flex gap-1.5"><span className="text-green-500">✓</span>{c}</li>
+                          ))}
+                        </ul>
                       </div>
                     )}
                   </div>
@@ -480,12 +619,6 @@ export default function Articles() {
                             </div>
                           </div>
                         )}
-                        {brief.credibilityScore != null && (
-                          <div className="flex justify-between text-xs">
-                            <span className="text-gray-500">Credibility Score</span>
-                            <span className="font-medium">{brief.credibilityScore}</span>
-                          </div>
-                        )}
                       </>
                     ) : (
                       <div className="text-xs text-gray-400 text-center py-8">
@@ -498,7 +631,6 @@ export default function Articles() {
                 {/* Scores tab */}
                 {activeTab === 'scores' && (
                   <div className="space-y-3 text-xs">
-                    {/* Score cards */}
                     <div className="grid grid-cols-2 gap-2">
                       <div className="bg-gray-50 rounded-lg p-3 text-center">
                         <div className={`text-2xl font-bold ${selected.quality_score >= 75 ? 'text-green-700' : selected.quality_score ? 'text-red-600' : 'text-gray-400'}`}>{selected.quality_score ?? '—'}</div>
@@ -509,31 +641,19 @@ export default function Articles() {
                         <div className="text-xs text-gray-500 mt-0.5">E-E-A-T Score</div>
                       </div>
                     </div>
-
-                    {/* Article meta */}
                     <div className="space-y-1.5">
                       <div className="flex justify-between"><span className="text-gray-500">Provider</span><span className="font-medium">{selected.provider_used || '—'}</span></div>
                       <div className="flex justify-between"><span className="text-gray-500">Site</span><span>{selected.site_name || '—'}</span></div>
                       <div className="flex justify-between"><span className="text-gray-500">Dibuat</span><span>{new Date(selected.created_at).toLocaleString('id-ID')}</span></div>
-                      {selected.published_at && (
-                        <div className="flex justify-between"><span className="text-gray-500">Publish</span><span>{new Date(selected.published_at).toLocaleString('id-ID')}</span></div>
-                      )}
-                      {selected.wordpress_post_id && (
-                        <div className="flex justify-between"><span className="text-gray-500">WP Post ID</span><span className="font-mono">#{selected.wordpress_post_id}</span></div>
-                      )}
+                      {selected.published_at && <div className="flex justify-between"><span className="text-gray-500">Publish</span><span>{new Date(selected.published_at).toLocaleString('id-ID')}</span></div>}
+                      {selected.wordpress_post_id && <div className="flex justify-between"><span className="text-gray-500">WP Post ID</span><span className="font-mono">#{selected.wordpress_post_id}</span></div>}
                     </div>
-
-                    {/* WordPress link */}
                     {selected.wordpress_url && (
                       <div className="bg-green-50 border border-green-200 rounded-lg p-2.5">
                         <div className="text-green-700 font-medium mb-1">✅ Terbit di WordPress</div>
-                        <a href={selected.wordpress_url} target="_blank" rel="noopener" className="text-blue-600 hover:underline break-all">
-                          {selected.wordpress_url} ↗
-                        </a>
+                        <a href={selected.wordpress_url} target="_blank" rel="noopener" className="text-blue-600 hover:underline break-all">{selected.wordpress_url} ↗</a>
                       </div>
                     )}
-
-                    {/* SEO Data */}
                     {(() => {
                       const seo = typeof selected.seo_data === 'string' ? JSON.parse(selected.seo_data || '{}') : (selected.seo_data || {});
                       if (!seo.metaTitle && !seo.slug) return null;
@@ -542,116 +662,43 @@ export default function Articles() {
                           <div className="font-medium text-gray-600">SEO Data</div>
                           {seo.focusKeyword && <div className="flex justify-between"><span className="text-gray-500">Keyword</span><span className="font-medium text-blue-600">{seo.focusKeyword}</span></div>}
                           {seo.slug && <div className="flex justify-between"><span className="text-gray-500">Slug</span><span className="font-mono text-gray-700 text-xs">{seo.slug}</span></div>}
-                          {seo.metaTitle && (
-                            <div>
-                              <div className="text-gray-500 mb-0.5">Meta Title <span className="text-gray-400">({seo.metaTitle.length} kar)</span></div>
-                              <div className="text-gray-700 bg-gray-50 rounded px-2 py-1">{seo.metaTitle}</div>
-                            </div>
-                          )}
-                          {seo.metaDescription && (
-                            <div>
-                              <div className="text-gray-500 mb-0.5">Meta Desc <span className="text-gray-400">({seo.metaDescription.length} kar)</span></div>
-                              <div className="text-gray-600 bg-gray-50 rounded px-2 py-1 leading-relaxed">{seo.metaDescription}</div>
-                            </div>
-                          )}
-                          {seo.keywordDensity && (
-                            <div className="flex justify-between">
-                              <span className="text-gray-500">Keyword Density</span>
-                              <span className={seo.keywordDensity.flagged ? 'text-red-600 font-medium' : 'text-gray-700'}>{seo.keywordDensity.percent}%{seo.keywordDensity.flagged ? ' ⚠' : ''}</span>
-                            </div>
-                          )}
-                          {seo.internalLinks?.length > 0 && (
-                            <div>
-                              <div className="text-gray-500 mb-0.5">Internal Links ({seo.internalLinks.length})</div>
-                              {seo.internalLinks.map((l, i) => (
-                                <div key={i} className="text-blue-600 text-xs truncate">{l.title}</div>
-                              ))}
-                            </div>
-                          )}
+                          {seo.metaTitle && <div><div className="text-gray-500 mb-0.5">Meta Title ({seo.metaTitle.length} kar)</div><div className="text-gray-700 bg-gray-50 rounded px-2 py-1">{seo.metaTitle}</div></div>}
+                          {seo.metaDescription && <div><div className="text-gray-500 mb-0.5">Meta Desc ({seo.metaDescription.length} kar)</div><div className="text-gray-600 bg-gray-50 rounded px-2 py-1 leading-relaxed">{seo.metaDescription}</div></div>}
                           {seo.lsiKeywords?.length > 0 && (
-                            <div>
-                              <div className="text-gray-500 mb-0.5">LSI Keywords</div>
-                              <div className="flex flex-wrap gap-1">
-                                {seo.lsiKeywords.slice(0, 6).map((k, i) => (
-                                  <span key={i} className="bg-blue-50 text-blue-600 rounded px-1.5 py-0.5 text-xs">{k}</span>
-                                ))}
-                              </div>
+                            <div><div className="text-gray-500 mb-0.5">LSI Keywords</div>
+                              <div className="flex flex-wrap gap-1">{seo.lsiKeywords.slice(0, 6).map((k, i) => <span key={i} className="bg-blue-50 text-blue-600 rounded px-1.5 py-0.5 text-xs">{k}</span>)}</div>
                             </div>
                           )}
                         </div>
                       );
                     })()}
-
-                    {/* Image data */}
-                    {(() => {
-                      const img = typeof selected.image_data === 'string' ? JSON.parse(selected.image_data || '{}') : (selected.image_data || {});
-                      if (!img.featured) return null;
-                      const f = img.featured;
-                      return (
-                        <div className="pt-2 border-t border-gray-100">
-                          <div className="font-medium text-gray-600 mb-1.5">Gambar Featured</div>
-                          {f.url && (
-                            <img src={f.url} alt={f.altText} className="w-full rounded-lg object-cover mb-1.5" style={{ maxHeight: '100px' }} />
-                          )}
-                          <div className="space-y-1">
-                            <div className="flex justify-between"><span className="text-gray-500">Source</span><span className={`font-medium ${f.source === 'placeholder' ? 'text-orange-500' : 'text-green-600'}`}>{f.source}</span></div>
-                            {f.altText && <div className="text-gray-600 text-xs bg-gray-50 rounded px-2 py-1">{f.altText}</div>}
-                            {f.credit && <div className="text-gray-400 text-xs">{f.credit}</div>}
-                          </div>
-                        </div>
-                      );
-                    })()}
-
-                    {/* Change log */}
-                    {cv?.changeLog?.length > 0 && (
-                      <div className="pt-2 border-t border-gray-100">
-                        <div className="font-medium text-gray-600 mb-1">Editor Changelog</div>
-                        <ul className="space-y-0.5">
-                          {cv.changeLog.map((c, i) => (
-                            <li key={i} className="text-gray-600 flex gap-1.5"><span className="text-green-500">✓</span>{c}</li>
-                          ))}
-                        </ul>
-                      </div>
-                    )}
                   </div>
                 )}
               </div>
 
               {/* Action footer */}
               <div className="p-4 border-t border-gray-100 flex-shrink-0 space-y-2">
-                {/* Regenerate from step */}
                 <div>
                   <label className="text-xs font-medium text-gray-600 block mb-1">Regenerasi dari step</label>
                   <div className="flex gap-1.5">
-                    <select
-                      value={regenStep}
-                      onChange={e => setRegenStep(e.target.value)}
-                      className="flex-1 border rounded-lg px-2 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-blue-500"
-                    >
+                    <select value={regenStep} onChange={e => setRegenStep(e.target.value)}
+                      className="flex-1 border rounded-lg px-2 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-blue-500">
                       <option value="">Pilih step...</option>
                       {PIPELINE_STEPS.map(s => <option key={s} value={s}>{s}</option>)}
                     </select>
-                    <button
-                      onClick={handleRegen}
-                      disabled={!regenStep || regenLoading}
-                      className="bg-indigo-600 hover:bg-indigo-700 disabled:opacity-40 text-white text-xs px-3 py-1.5 rounded-lg"
-                    >
+                    <button onClick={handleRegen} disabled={!regenStep || regenLoading}
+                      className="bg-indigo-600 hover:bg-indigo-700 disabled:opacity-40 text-white text-xs px-3 py-1.5 rounded-lg">
                       {regenLoading ? '...' : '↺ Run'}
                     </button>
                   </div>
                 </div>
-                {/* Other actions */}
                 <div className="flex gap-2">
-                  <button
-                    onClick={handleForcePublish}
-                    className="flex-1 bg-green-600 hover:bg-green-700 text-white text-xs px-3 py-1.5 rounded-lg"
-                  >
+                  <button onClick={handleForcePublish} disabled={actionLoading}
+                    className="flex-1 bg-green-600 hover:bg-green-700 disabled:opacity-50 text-white text-xs px-3 py-1.5 rounded-lg">
                     Force Publish
                   </button>
-                  <button
-                    onClick={() => handleDelete(selected.id)}
-                    className="bg-red-500 hover:bg-red-600 text-white text-xs px-3 py-1.5 rounded-lg"
-                  >
+                  <button onClick={() => handleDelete(selected.id)}
+                    className="bg-red-500 hover:bg-red-600 text-white text-xs px-3 py-1.5 rounded-lg">
                     Hapus
                   </button>
                 </div>

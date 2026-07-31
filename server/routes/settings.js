@@ -119,6 +119,83 @@ router.post('/prompt-templates', async (req, res, next) => {
   } catch (err) { next(err); }
 });
 
+// GET /api/v1/settings/system-config — read editable runtime config from DB
+router.get('/system-config', async (req, res, next) => {
+  try {
+    const { rows } = await query(`SELECT key, value FROM system_settings ORDER BY key`);
+    const dbConfig = {};
+    for (const r of rows) dbConfig[r.key] = r.value;
+
+    // Merge: DB overrides env defaults
+    res.json({
+      success: true,
+      data: {
+        humanizer_level:           dbConfig.humanizer_level          ?? config.humanizerLevel          ?? 3,
+        quality_score_threshold:   dbConfig.quality_score_threshold  ?? config.qualityScoreThreshold   ?? 75,
+        eeat_score_threshold:      dbConfig.eeat_score_threshold     ?? config.eeatScoreThreshold      ?? 80,
+        key_warning_threshold:     dbConfig.key_warning_threshold    ?? config.keyWarningThreshold     ?? 80,
+        human_review_enabled:      dbConfig.human_review_enabled     ?? false,
+        image_fallback_chain:      dbConfig.image_fallback_chain     ?? ['ai_generate','unsplash','pexels','placeholder'],
+        timezone:                  config.timezone,
+        adminUsername:             config.adminUsername,
+        authConfigured:            !!config.adminPasswordHash,
+      },
+    });
+  } catch (err) { next(err); }
+});
+
+// PATCH /api/v1/settings/system-config — update editable runtime config
+router.patch('/system-config', async (req, res, next) => {
+  try {
+    const ALLOWED_KEYS = [
+      'humanizer_level', 'quality_score_threshold', 'eeat_score_threshold',
+      'key_warning_threshold', 'human_review_enabled',
+    ];
+    const updates = [];
+    for (const key of ALLOWED_KEYS) {
+      if (req.body[key] !== undefined) {
+        updates.push({ key, value: req.body[key] });
+      }
+    }
+    if (!updates.length) {
+      return res.status(400).json({ success: false, error: { code: 'NO_UPDATES', message: 'No valid fields provided' } });
+    }
+    for (const { key, value } of updates) {
+      await query(
+        `INSERT INTO system_settings (key, value, updated_at) VALUES ($1, $2::jsonb, NOW())
+         ON CONFLICT (key) DO UPDATE SET value = $2::jsonb, updated_at = NOW()`,
+        [key, JSON.stringify(value)]
+      );
+    }
+    res.json({ success: true, data: { updated: updates.map(u => u.key) } });
+  } catch (err) { next(err); }
+});
+
+// GET /api/v1/settings/image-chain — get image provider fallback chain
+router.get('/image-chain', async (req, res, next) => {
+  try {
+    const { rows } = await query(`SELECT value FROM system_settings WHERE key = 'image_fallback_chain'`);
+    const chain = rows.length ? rows[0].value : ['ai_generate','unsplash','pexels','placeholder'];
+    res.json({ success: true, data: { chain } });
+  } catch (err) { next(err); }
+});
+
+// PUT /api/v1/settings/image-chain — save image provider fallback chain
+router.put('/image-chain', async (req, res, next) => {
+  try {
+    const { chain } = req.body;
+    if (!Array.isArray(chain)) {
+      return res.status(400).json({ success: false, error: { code: 'INVALID_CHAIN', message: 'chain must be an array' } });
+    }
+    await query(
+      `INSERT INTO system_settings (key, value, updated_at) VALUES ('image_fallback_chain', $1::jsonb, NOW())
+       ON CONFLICT (key) DO UPDATE SET value = $1::jsonb, updated_at = NOW()`,
+      [JSON.stringify(chain)]
+    );
+    res.json({ success: true, data: { chain } });
+  } catch (err) { next(err); }
+});
+
 // PATCH /api/v1/settings/prompt-templates/:id
 // Supports: prompt_template, is_active, status, is_champion
 // Champion lifecycle: setting is_champion=true on a row also clears it on all
