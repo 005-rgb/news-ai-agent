@@ -5,3 +5,4 @@
 - [Phase 3 Content Pipeline](phase3-pipeline.md) — all 5 agents real (Reporter→Writer→Editor→QualityRater→Orchestrator); each agent enqueues next job itself
 - [Phase 4 Writing Standards](phase4-writing-standards.md) — selectWritingStandard()+getFormatChecklist() in promptTemplates.js; editor applies humanizer; DB seeds 7 templates
 - [Phase 5 Publisher & Image Pipeline](phase5-publisher.md) — Fotografer→SEO→Publisher full; qualityRater now enqueues IMAGE; no-WP-config graceful fallback to ready_to_publish
+- [Phase 6 Scheduler](phase6-scheduler.md) — Site crons from sites.config.posting_schedule; smartDelayMs ±15/+45min; source refresh 6h; reloadSiteCrons() needed after site changes

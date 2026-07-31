@@ -34,7 +34,8 @@ The workflow `Start application` runs `npm run build && node server/index.js`.
 | 3 | Content Pipeline Core | ✅ Done |
 | 4 | Writing Standards Engine | ✅ Done |
 | 5 | Fotografer + SEO + WordPress Publisher | ✅ Done |
-| 6–11 | Scheduler, Dashboard, Quality… | 🔜 Planned |
+| 6 | Scheduler & Full Automation | ✅ Done |
+| 7–11 | Dashboard, Quality, Rapat, Innovation, Hardening | 🔜 Planned |
 
 ## Login
 
