@@ -19,8 +19,12 @@ pool.on('error', (err) => {
 // ── Migration DDL ─────────────────────────────────────────────────────────────
 
 const MIGRATION_SQL = `
--- Enable UUID extension
-CREATE EXTENSION IF NOT EXISTS "pgcrypto";
+-- Enable pgcrypto jika tersedia (PostgreSQL 13+ sudah punya gen_random_uuid() built-in)
+DO $$ BEGIN
+  CREATE EXTENSION IF NOT EXISTS "pgcrypto";
+EXCEPTION WHEN OTHERS THEN
+  NULL; -- abaikan jika tidak tersedia, gen_random_uuid() tetap berjalan di PG 13+
+END $$;
 
 -- ── 1. sites ─────────────────────────────────────────────────────────────────
 CREATE TABLE IF NOT EXISTS sites (
