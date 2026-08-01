@@ -42,7 +42,7 @@ if [ -f "$NODEVENV_PATH/bin/activate" ]; then
   source "$NODEVENV_PATH/bin/activate"
 fi
 
-npm install --production --prefer-offline
+npm install --omit=dev --prefer-offline --prefix "$APP_DIR"
 echo "   ✓ Production dependencies siap"
 
 # ─── 3. Restart Passenger ────────────────────────────────────────────────────
