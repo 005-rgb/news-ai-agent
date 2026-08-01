@@ -54,7 +54,7 @@ export default function Layout({ children, currentPage, navigate }) {
         {!collapsed && (
           <div className="p-3 border-t border-gray-700">
             <div className="bg-blue-900 rounded px-2 py-1 text-xs text-blue-300">
-              Phase 1 — Key Pool ✓
+              Phase 7 — Dashboard Full ✓
             </div>
           </div>
         )}

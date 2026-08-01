@@ -95,7 +95,7 @@ app.get('/api/v1/health', async (req, res) => {
         status: 'ok',
         db: 'connected',
         version: '1.0.0',
-        phase: 'Phase 6 — Scheduler & Full Automation',
+        phase: 'Phase 7 — Dashboard Full',
         timestamp: new Date().toISOString(),
       },
     });
@@ -260,12 +260,12 @@ async function start() {
     // ── Phase 6: Site Scheduler ────────────────────────────────────────────
     const scheduler = require('./services/scheduler');
     await scheduler.start();
-    await logger.info('Server', 'Phase 6 Scheduler started');
+    await logger.info('Server', 'Phase 7 Scheduler started');
 
     app.listen(config.port, '0.0.0.0', () => {
       console.log(`\n[Server] News AI Agent running on port ${config.port}`);
       console.log(`[Server] Health: http://localhost:${config.port}/api/v1/health`);
-      console.log(`[Server] Phase 6 — Scheduler & Full Automation ✓\n`);
+      console.log(`[Server] Phase 7 — Dashboard Full ✓\n`);
     });
   } catch (err) {
     console.error('[Server] Fatal error during startup:', err.message);

@@ -25,6 +25,13 @@ description: Complete Phase 7 dashboard — all 8 menus real, no placeholders. K
 - Sites pause/activate: uses existing PATCH `/sites/:id` with `status` field — no new endpoint needed
 - Persona preview: calls GET `/sites/:id` to get full data including `persona_memory` column
 
+## Phase 7 bug fixes (post-import)
+- **Login.jsx + Layout.jsx** — both had "Phase 1 — API Key Pool Manager ✓" stale label; updated to "Phase 7 — Dashboard Full ✓"
+- **server/index.js** — health check response and console.log still said "Phase 6"; updated to Phase 7
+- **rapat.js POST /trigger** — was a stub returning a hardcoded message; replaced with real DB aggregation (site stats last 7 days, pipeline breakdown, top articles, alerts, source health), generates a structured notulen, saves to rapat_notes table, returns real stats
+- **analyst.js generateWeeklyReport()** — was a one-liner stub; replaced with full DB aggregation (production by site, pipeline stages, provider performance, evergreen candidates, failure analysis, key usage, recommendations)
+- **sources.js POST /:id/test API branch** — was a stub returning a fake "manual test required" string; replaced with real axios GET that parses common API response shapes (articles/results/data/items arrays)
+
 **Why:** PRD Phase 7 spec required all menus to be real/functional. system_settings stores editable runtime config separate from env vars.
 
 **How to apply:** Any future config that needs to be editable at runtime (without restart) should use system_settings table with INSERT ON CONFLICT DO UPDATE pattern. Timezone is exception — requires restart for node-cron effect.

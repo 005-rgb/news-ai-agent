@@ -122,7 +122,25 @@ router.post('/:id/test', async (req, res, next) => {
       const rssFetcher = require('../services/fetchers/rss');
       items = await rssFetcher.fetchRSS(source.rss_url, { timeout: 15000 });
     } else if (source.type === 'api') {
-      items = [{ title: `API source ${source.name} — manual test required`, link: source.url }];
+      // Real HTTP GET test for API-type sources
+      const axios = require('axios');
+      const resp = await axios.get(source.url, {
+        timeout: 15000,
+        headers: { 'User-Agent': 'NewsAIAgent/1.0' },
+        validateStatus: null,
+      });
+      const statusOk = resp.status >= 200 && resp.status < 300;
+      const body = resp.data;
+      // Try to extract items from common API shapes: { articles }, { results }, { data }, { items }
+      const raw = body?.articles || body?.results || body?.data || body?.items || (Array.isArray(body) ? body : null);
+      if (Array.isArray(raw)) {
+        items = raw.slice(0, 5).map((r, i) => ({
+          title: r.title || r.name || r.headline || `Item ${i + 1}`,
+          link:  r.url   || r.link  || r.web_url  || source.url,
+        }));
+      } else {
+        items = [{ title: `API responded ${resp.status} — ${statusOk ? 'OK' : 'Error'}`, link: source.url }];
+      }
     } else {
       const scraper = require('../services/fetchers/scraper');
       items = await scraper.scrapeSource(source.url, source.css_selectors || {});
