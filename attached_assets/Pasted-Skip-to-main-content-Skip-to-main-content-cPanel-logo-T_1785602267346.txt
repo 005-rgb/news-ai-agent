@@ -1,0 +1,138 @@
+Skip to main content
+Skip to main content
+cPanel logo
+Tools
+Social Media Management
+Sitejet Builder
+WordPress Management
+Site Quality Monitoring
+WordPress Manager by Softaculous
+Search Tools (/)
+
+Zone Editor
+Domain Manage Zone
+DNS converts domain names into computer-readable IP addresses. Use this feature to manage DNS zones. For more information, read the documentation.
+
+Zone Records for “agentic.skansagiri.sch.id”
+Configured nameservers for this zone: ns1.idwebhost.comns2.idwebhost.com
+Filter by name
+Filter: 
+Semua
+A
+CNAME
+MX
+SRV
+TXT
+<<<>>>
+Displaying 1 to 28 out of 28 item
+
+  
+Nama	TTL	Tipe	Record	Tindakan
+agentic.skansagiri.sch.id.	14400	A	
+202.52.146.217
+ 
+agentic.skansagiri.sch.id.	14400	MX	
+Prioritas: 0
+Tujuan: agentic.skansagiri.sch.id
+ 
+mail.agentic.skansagiri.sch.id.	14400	CNAME	
+agentic.skansagiri.sch.id
+ 
+www.agentic.skansagiri.sch.id.	14400	CNAME	
+agentic.skansagiri.sch.id
+ 
+ftp.agentic.skansagiri.sch.id.	14400	CNAME	
+agentic.skansagiri.sch.id
+ 
+_carddav._tcp.agentic.skansagiri.sch.id.	14400	SRV	
+Prioritas: 0
+Berat: 0
+Port : 2079
+Target: agentic.skansagiri.sch.id
+ 
+_carddav._tcp.agentic.skansagiri.sch.id.	14400	TXT	
+path=/
+ 
+_autodiscover._tcp.agentic.skansagiri.sch.id.	14400	SRV	
+Prioritas: 0
+Berat: 0
+Port : 443
+Target: cpanelemaildiscovery.cpanel.net
+ 
+_caldav._tcp.agentic.skansagiri.sch.id.	14400	SRV	
+Prioritas: 0
+Berat: 0
+Port : 2079
+Target: agentic.skansagiri.sch.id
+ 
+_caldav._tcp.agentic.skansagiri.sch.id.	14400	TXT	
+path=/
+ 
+autodiscover.agentic.skansagiri.sch.id.	14400	A	
+202.52.146.217
+ 
+webmail.agentic.skansagiri.sch.id.	14400	A	
+202.52.146.217
+ 
+_caldavs._tcp.agentic.skansagiri.sch.id.	14400	SRV	
+Prioritas: 0
+Berat: 0
+Port : 2080
+Target: agentic.skansagiri.sch.id
+ 
+_caldavs._tcp.agentic.skansagiri.sch.id.	14400	TXT	
+path=/
+ 
+cpanel.agentic.skansagiri.sch.id.	14400	A	
+202.52.146.217
+ 
+cpcontacts.agentic.skansagiri.sch.id.	14400	A	
+202.52.146.217
+ 
+autoconfig.agentic.skansagiri.sch.id.	14400	A	
+202.52.146.217
+ 
+_carddavs._tcp.agentic.skansagiri.sch.id.	14400	SRV	
+Prioritas: 0
+Berat: 0
+Port : 2080
+Target: agentic.skansagiri.sch.id
+ 
+_carddavs._tcp.agentic.skansagiri.sch.id.	14400	TXT	
+path=/
+ 
+whm.agentic.skansagiri.sch.id.	14400	A	
+202.52.146.217
+ 
+cpcalendars.agentic.skansagiri.sch.id.	14400	A	
+202.52.146.217
+ 
+webdisk.agentic.skansagiri.sch.id.	14400	A	
+202.52.146.217
+ 
+default._domainkey.agentic.skansagiri.sch.id.	14400	TXT	
+v=DKIM1; k=rsa; p=MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA0rmmX6+W/4IjPa2A0xyYAVCjeR8hrOv0JQ5MhwZCmCo3BXMwZZ5ZAwRxtF1AykH8OJPfj0fCOcP4jofm6JkyCV43Mj3BiDRyqBpcYlQCTI7JSCJ6nouHtolOAmuGg4E1kMqBuDpDT/8PqV+FKA0IPI4dIsmIpQRnAQSQ7GHRWGbIlV69QoYnp8z2hajcTAOQ/
+RKo7Ub6GUJAadqUnH8zST1FSvihD15fX5k3JQbUYtCxJoDXDcy9PtkDhXhlLQABVUxFU2rD7OHLnLc77a2aFoHvF4jFE9A5oXXbStnWYm4dyCOREIsQyZt77SEGZEMNR+iXCieY/M9QwDGNWZGUfwIDAQAB;
+ 
+agentic.skansagiri.sch.id.	14400	TXT	
+v=spf1 +a +mx +ip4:202.52.146.217 ~all
+ 
+_dmarc.agentic.skansagiri.sch.id.	14400	TXT	
+v=DMARC1; p=none;
+ 
+_acme-challenge.mail.agentic.skansagiri.sch.id.	14400	TXT	
+0cw9HPvXXIe_K5oSf3Yg1wf27JlBjKsQuFujmTLmFGo
+ 
+_acme-challenge.agentic.skansagiri.sch.id.	14400	TXT	
+EBegSQ4pM3fJpTbxY8X2BpiYhjNm0WhUJHHHz4V2rzc
+ 
+_acme-challenge.www.agentic.skansagiri.sch.id.	14400	TXT	
+s6MzJ8eBZbpQBqHz2aHU6vDQnOiAV-bm1fo5hnb7QAA
+ 
+cPanel logo
+134.0.48
+Beranda
+Merek dagang
+Kebijakan Privasi
+Dokumentasi
+Beri Umpan Balik
