@@ -19,6 +19,9 @@ const BaseAgent = require('./base');
 const { query } = require('../db');
 const { selectWritingStandard } = require('../config/promptTemplates');
 const { enqueueJob } = require('../services/jobQueue');
+const { findDuplicates, topicFingerprint } = require('../utils/similarity');
+
+const DUPLICATE_THRESHOLD = 0.65; // keyword overlap >= 65% → flag as DUPLICATE_RISK
 
 const FORMAT_WORD_TARGETS = {
   berita_singkat:   { min: 200, max: 400 },
@@ -140,6 +143,57 @@ class WriterAgent extends BaseAgent {
     const { brief, format = 'berita_singkat', siteId, category, citationStyle = 'APA' } = payload;
     await this.log('info', `Writing article ${articleId} (format: ${format})`, { format, category });
     await query(`UPDATE articles SET status = 'writing' WHERE id = $1`, [articleId]);
+
+    // ── Phase 8 Step 8.3: Pre-write Duplikasi Guard ───────────────────────
+    // Only check if this is not already a pivot attempt
+    if (!payload.brief?.duplicatePivot) {
+      const topicToCheck = `${brief?.topic || ''} ${brief?.mainThesis || ''}`.trim();
+      if (topicToCheck && siteId) {
+        try {
+          const { rows: existingArticles } = await query(
+            `SELECT id, title FROM articles
+             WHERE site_id = $1
+               AND status NOT IN ('failed','draft')
+               AND id != $2
+             ORDER BY created_at DESC
+             LIMIT 80`,
+            [siteId, articleId]
+          );
+
+          if (existingArticles.length > 0) {
+            const dupes = findDuplicates(topicToCheck, existingArticles, DUPLICATE_THRESHOLD);
+            if (dupes.length > 0) {
+              await this.log('warn', `Duplicate risk detected: "${brief?.topic}" has ${dupes.length} similar article(s) (top: ${Math.round(dupes[0].overlap * 100)}%)`, {
+                articleId,
+                topDuplicate: dupes[0].title,
+                overlap: dupes[0].overlap,
+              });
+
+              // Mark in DB
+              await query(
+                `UPDATE articles SET content_versions = content_versions || $1::jsonb WHERE id = $2`,
+                [JSON.stringify({ isDuplicate: true, duplicates: dupes.slice(0,3).map(d => ({ title: d.title, overlap: d.overlap })) }), articleId]
+              );
+
+              // Enqueue DUPLICATE_RISK for ChiefEditor to resolve; stop this WRITE job
+              await enqueueJob('DUPLICATE_RISK', articleId, {
+                originalTopic: brief?.topic,
+                duplicates: dupes.slice(0, 3),
+                brief,
+                format,
+                siteId,
+                category,
+              }, 'high');
+
+              await this.log('info', `WRITE halted — DUPLICATE_RISK job enqueued for article ${articleId}`, { articleId });
+              return { halted: true, reason: 'duplicate_risk', duplicates: dupes.slice(0,3) };
+            }
+          }
+        } catch (checkErr) {
+          await this.log('warn', `Duplicate check failed: ${checkErr.message} — continuing write`, { articleId });
+        }
+      }
+    }
 
     // ── Step 1: Load site persona ─────────────────────────────────────────
     const site = await getSitePersona(siteId);

@@ -75,7 +75,7 @@ export default function Login({ onLogin }) {
         </form>
 
         <p className="text-center text-gray-500 text-xs mt-4">
-          Phase 7 — Dashboard Full ✓
+          Phase 8 — Quality & Humanizer Engine ✓
         </p>
       </div>
     </div>

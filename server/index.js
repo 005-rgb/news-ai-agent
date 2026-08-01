@@ -30,6 +30,7 @@ const rapatRoutes     = require('./routes/rapat');
 const analyticsRoutes   = require('./routes/analytics');
 const settingsRoutes    = require('./routes/settings');
 const schedulerRoutes   = require('./routes/scheduler');
+const qualityRoutes     = require('./routes/quality');
 
 const app = express();
 
@@ -95,7 +96,7 @@ app.get('/api/v1/health', async (req, res) => {
         status: 'ok',
         db: 'connected',
         version: '1.0.0',
-        phase: 'Phase 7 — Dashboard Full',
+        phase: 'Phase 8 — Quality & Humanizer Engine',
         timestamp: new Date().toISOString(),
       },
     });
@@ -119,6 +120,7 @@ app.use('/api/v1/rapat',     rapatRoutes);
 app.use('/api/v1/analytics',  analyticsRoutes);
 app.use('/api/v1/settings',   settingsRoutes);
 app.use('/api/v1/scheduler',  schedulerRoutes);
+app.use('/api/v1/quality',    qualityRoutes);
 
 // ── Serve React client ────────────────────────────────────────────────────────
 const clientDist = path.join(__dirname, '..', 'client', 'dist');
@@ -260,12 +262,12 @@ async function start() {
     // ── Phase 6: Site Scheduler ────────────────────────────────────────────
     const scheduler = require('./services/scheduler');
     await scheduler.start();
-    await logger.info('Server', 'Phase 7 Scheduler started');
+    await logger.info('Server', 'Phase 8 Quality & Humanizer Engine started');
 
     app.listen(config.port, '0.0.0.0', () => {
       console.log(`\n[Server] News AI Agent running on port ${config.port}`);
       console.log(`[Server] Health: http://localhost:${config.port}/api/v1/health`);
-      console.log(`[Server] Phase 7 — Dashboard Full ✓\n`);
+      console.log(`[Server] Phase 8 — Quality & Humanizer Engine ✓\n`);
     });
   } catch (err) {
     console.error('[Server] Fatal error during startup:', err.message);

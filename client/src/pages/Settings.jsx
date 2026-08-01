@@ -1,7 +1,7 @@
 import React, { useEffect, useState, useCallback } from 'react';
-import { settings as settingsApi, auth, apiKeys } from '../lib/api';
+import { settings as settingsApi, auth, apiKeys, quality as qualityApi, sites as sitesApi } from '../lib/api';
 
-const TABS = ['Operasional', 'Prompt Templates', 'Keamanan', 'Sistem', 'Export'];
+const TABS = ['Operasional', 'Prompt Templates', 'Quality Engine', 'Keamanan', 'Sistem', 'Export'];
 
 const TIMEZONES = [
   'Asia/Jakarta', 'Asia/Makassar', 'Asia/Jayapura',
@@ -74,6 +74,22 @@ function ChainEditor({ chain, allProviders, providerInfo, onChange, title, desc 
 export default function Settings({ onLogout }) {
   const [activeTab, setActiveTab] = useState('Operasional');
 
+  // ── Quality Engine state ───────────────────────────────────────────────────
+  const [humText, setHumText]           = useState('');
+  const [humLevel, setHumLevel]         = useState(3);
+  const [humResult, setHumResult]       = useState(null);
+  const [humLoading, setHumLoading]     = useState(false);
+  const [humError, setHumError]         = useState('');
+  const [dupTopic, setDupTopic]         = useState('');
+  const [dupSiteId, setDupSiteId]       = useState('');
+  const [dupThreshold, setDupThreshold] = useState(60);
+  const [dupResult, setDupResult]       = useState(null);
+  const [dupLoading, setDupLoading]     = useState(false);
+  const [dupError, setDupError]         = useState('');
+  const [qStats, setQStats]             = useState(null);
+  const [qStatsLoading, setQStatsLoading] = useState(false);
+  const [sitesList, setSitesList]       = useState([]);
+
   // ── Operasional state ──────────────────────────────────────────────────────
   const [sysConfig, setSysConfig] = useState(null);
   const [sysForm, setSysForm] = useState({});
@@ -99,6 +115,38 @@ export default function Settings({ onLogout }) {
   const [tplMsg, setTplMsg] = useState(null);
   const [showNewForm, setShowNewForm] = useState(false);
   const [newTpl, setNewTpl] = useState({ name: '', agent_type: 'writer', category: 'berita', prompt_template: '' });
+
+  // ── Quality Engine handlers ────────────────────────────────────────────────
+  const loadQualityStats = useCallback(async () => {
+    setQStatsLoading(true);
+    const res = await qualityApi.stats(7).catch(() => null);
+    setQStats(res?.data || null);
+    setQStatsLoading(false);
+  }, []);
+
+  const handleTestHumanizer = async () => {
+    if (!humText.trim()) { setHumError('Masukkan teks terlebih dahulu.'); return; }
+    setHumLoading(true); setHumError(''); setHumResult(null);
+    try {
+      const res = await qualityApi.testHumanizer(humText, humLevel);
+      setHumResult(res.data || res);
+    } catch (err) {
+      setHumError(err?.message || 'Gagal menjalankan humanizer.');
+    }
+    setHumLoading(false);
+  };
+
+  const handleCheckDuplicate = async () => {
+    if (!dupTopic.trim()) { setDupError('Masukkan topik terlebih dahulu.'); return; }
+    setDupLoading(true); setDupError(''); setDupResult(null);
+    try {
+      const res = await qualityApi.checkDuplicate(dupTopic, dupSiteId || undefined, dupThreshold / 100);
+      setDupResult(res.data || res);
+    } catch (err) {
+      setDupError(err?.message || 'Gagal memeriksa duplikasi.');
+    }
+    setDupLoading(false);
+  };
 
   const loadSysConfig = useCallback(async () => {
     setSysLoading(true);
@@ -139,6 +187,10 @@ export default function Settings({ onLogout }) {
     if (activeTab === 'Operasional') loadSysConfig();
     else if (activeTab === 'Prompt Templates') loadTemplates();
     else if (activeTab === 'Sistem') loadConfig();
+    else if (activeTab === 'Quality Engine') {
+      loadQualityStats();
+      sitesApi.list().then(r => setSitesList(r.data || [])).catch(() => {});
+    }
   }, [activeTab]);
 
   // ── System config save ─────────────────────────────────────────────────────
@@ -642,6 +694,237 @@ export default function Settings({ onLogout }) {
         </div>
       )}
 
+      {/* ── Tab: Quality Engine ──────────────────────────────────────────────── */}
+      {activeTab === 'Quality Engine' && (
+        <div className="space-y-6">
+
+          {/* Quality Stats */}
+          <div className="bg-white rounded-xl border border-gray-200 p-5">
+            <div className="flex items-center justify-between mb-4">
+              <h3 className="font-semibold text-gray-800">Statistik Quality (7 Hari Terakhir)</h3>
+              <button onClick={loadQualityStats} className="text-sm text-blue-600 hover:text-blue-800">🔄 Refresh</button>
+            </div>
+            {qStatsLoading ? (
+              <div className="text-center py-4 text-gray-400 text-sm">Memuat statistik...</div>
+            ) : qStats ? (
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                {[
+                  { label: 'Rata-rata Quality Score', value: qStats.overall.avgQualityScore ? `${qStats.overall.avgQualityScore}/100` : '—', color: qStats.overall.avgQualityScore >= 75 ? 'text-green-700' : 'text-red-600' },
+                  { label: 'Rata-rata E-E-A-T Score', value: qStats.overall.avgEeatScore ? `${qStats.overall.avgEeatScore}/100` : '—', color: qStats.overall.avgEeatScore >= 80 ? 'text-green-700' : 'text-orange-600' },
+                  { label: 'Quality Gate Pass Rate', value: `${qStats.overall.qualityPassRate}%`, color: qStats.overall.qualityPassRate >= 70 ? 'text-green-700' : 'text-red-600' },
+                  { label: 'E-E-A-T Gate Pass Rate', value: `${qStats.overall.eeatPassRate}%`, color: qStats.overall.eeatPassRate >= 70 ? 'text-green-700' : 'text-red-600' },
+                  { label: 'Total Artikel Diproses', value: qStats.overall.totalArticles, color: 'text-gray-800' },
+                  { label: 'Gagal Quality Gate', value: qStats.overall.failedQualityGate, color: qStats.overall.failedQualityGate > 5 ? 'text-red-600' : 'text-gray-800' },
+                  { label: 'Gagal E-E-A-T Gate', value: qStats.overall.failedEeatGate, color: qStats.overall.failedEeatGate > 5 ? 'text-red-600' : 'text-gray-800' },
+                  { label: 'Duplicate Risk Terdeteksi', value: qStats.duplication.duplicateRiskCount, color: qStats.duplication.duplicateRiskCount > 0 ? 'text-amber-600' : 'text-gray-800' },
+                ].map(({ label, value, color }) => (
+                  <div key={label} className="bg-gray-50 rounded-lg p-3">
+                    <div className={`text-lg font-bold ${color}`}>{value}</div>
+                    <div className="text-xs text-gray-500 mt-0.5">{label}</div>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="text-center py-4 text-gray-400 text-sm">Belum ada data.</div>
+            )}
+          </div>
+
+          {/* Test Humanizer */}
+          <div className="bg-white rounded-xl border border-gray-200 p-5">
+            <h3 className="font-semibold text-gray-800 mb-1">🔬 Test Humanizer</h3>
+            <p className="text-xs text-gray-500 mb-4">Masukkan teks artikel, lihat hasil sebelum dan sesudah humanizer + laporan AI detection flags.</p>
+
+            <div className="space-y-3">
+              <div className="flex items-center gap-4">
+                <label className="text-xs font-semibold text-gray-600 whitespace-nowrap">Level Humanizer:</label>
+                <input type="range" min="1" max="4" step="1" value={humLevel}
+                  onChange={e => setHumLevel(parseInt(e.target.value))}
+                  className="flex-1 accent-blue-600" />
+                <span className="text-sm font-bold text-blue-700 w-16">Level {humLevel}</span>
+              </div>
+              <textarea
+                value={humText}
+                onChange={e => setHumText(e.target.value)}
+                rows={8}
+                placeholder="Tempelkan paragraf artikel di sini untuk diuji..."
+                className="w-full border rounded-lg px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-blue-500"
+              />
+              {humError && <div className="text-xs text-red-600 bg-red-50 rounded px-3 py-2">{humError}</div>}
+              <button onClick={handleTestHumanizer} disabled={humLoading}
+                className="bg-blue-600 hover:bg-blue-700 disabled:opacity-50 text-white text-sm font-medium px-4 py-2 rounded-lg">
+                {humLoading ? 'Memproses...' : '▶ Jalankan Humanizer'}
+              </button>
+            </div>
+
+            {humResult && (
+              <div className="mt-5 space-y-4">
+                {/* AI Flags Before */}
+                <div>
+                  <div className="flex items-center gap-2 mb-2">
+                    <span className="text-xs font-semibold text-gray-600">AI Detection Flags (Sebelum):</span>
+                    <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${
+                      humResult.original.aiRisk === 'high' ? 'bg-red-100 text-red-700' :
+                      humResult.original.aiRisk === 'medium' ? 'bg-yellow-100 text-yellow-700' :
+                      'bg-green-100 text-green-700'
+                    }`}>{humResult.original.aiRisk === 'high' ? '🔴 Risiko Tinggi' : humResult.original.aiRisk === 'medium' ? '🟡 Risiko Sedang' : '🟢 Risiko Rendah'}</span>
+                  </div>
+                  {humResult.original.aiFlags.length === 0 ? (
+                    <p className="text-xs text-green-600">✓ Tidak ada flag AI terdeteksi</p>
+                  ) : (
+                    <ul className="space-y-1">
+                      {humResult.original.aiFlags.map((f, i) => (
+                        <li key={i} className="text-xs bg-red-50 text-red-700 rounded px-2 py-1">⚠ {f.msg}</li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+
+                {/* Diff summary */}
+                <div className="bg-blue-50 rounded-lg p-3">
+                  <div className="text-xs font-semibold text-blue-800 mb-1">Perubahan yang diterapkan:</div>
+                  <ul className="space-y-0.5">
+                    {humResult.changes.map((c, i) => <li key={i} className="text-xs text-blue-700">• {c}</li>)}
+                  </ul>
+                  <div className="mt-2 text-xs text-blue-600">
+                    AI flags dihilangkan: <strong>{humResult.summary.flagsRemoved}</strong> | Sisa: <strong>{humResult.summary.flagsRemaining}</strong>
+                  </div>
+                </div>
+
+                {/* AI Flags After */}
+                <div>
+                  <div className="flex items-center gap-2 mb-2">
+                    <span className="text-xs font-semibold text-gray-600">AI Detection Flags (Sesudah):</span>
+                    <span className={`text-xs font-bold px-2 py-0.5 rounded-full ${
+                      humResult.humanized.aiRisk === 'high' ? 'bg-red-100 text-red-700' :
+                      humResult.humanized.aiRisk === 'medium' ? 'bg-yellow-100 text-yellow-700' :
+                      'bg-green-100 text-green-700'
+                    }`}>{humResult.humanized.aiRisk === 'high' ? '🔴 Risiko Tinggi' : humResult.humanized.aiRisk === 'medium' ? '🟡 Risiko Sedang' : '🟢 Risiko Rendah'}</span>
+                  </div>
+                  {humResult.humanized.aiFlags.length === 0 ? (
+                    <p className="text-xs text-green-600">✓ Semua flag berhasil dihilangkan</p>
+                  ) : (
+                    <ul className="space-y-1">
+                      {humResult.humanized.aiFlags.map((f, i) => (
+                        <li key={i} className="text-xs bg-yellow-50 text-yellow-700 rounded px-2 py-1">⚠ {f.msg}</li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+
+                {/* Humanized text */}
+                <div>
+                  <div className="text-xs font-semibold text-gray-600 mb-1">Hasil Humanizer (Level {humResult.level}):</div>
+                  <div className="bg-gray-50 rounded-lg p-3 text-xs text-gray-700 whitespace-pre-wrap font-mono max-h-64 overflow-y-auto">
+                    {humResult.humanized.text}
+                  </div>
+                  <div className="text-xs text-gray-400 mt-1">
+                    {humResult.original.wordCount} kata → {humResult.humanized.wordCount} kata |{' '}
+                    {humResult.original.paragraphs} paragraf → {humResult.humanized.paragraphs} paragraf
+                  </div>
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* Duplicate Check */}
+          <div className="bg-white rounded-xl border border-gray-200 p-5">
+            <h3 className="font-semibold text-gray-800 mb-1">🔍 Cek Duplikasi Topik</h3>
+            <p className="text-xs text-gray-500 mb-4">Masukkan topik/judul artikel yang akan ditulis, cek apakah terlalu mirip dengan artikel existing di database.</p>
+
+            <div className="space-y-3">
+              <textarea
+                value={dupTopic}
+                onChange={e => setDupTopic(e.target.value)}
+                rows={3}
+                placeholder="Masukkan topik atau judul artikel yang akan ditulis..."
+                className="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+              />
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="text-xs font-medium text-gray-600 block mb-1">Filter Site (opsional)</label>
+                  <select value={dupSiteId} onChange={e => setDupSiteId(e.target.value)}
+                    className="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+                    <option value="">Semua site</option>
+                    {sitesList.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label className="text-xs font-medium text-gray-600 block mb-1">Threshold Similarity ({dupThreshold}%)</label>
+                  <input type="range" min="30" max="90" step="5" value={dupThreshold}
+                    onChange={e => setDupThreshold(parseInt(e.target.value))}
+                    className="w-full mt-2 accent-blue-600" />
+                </div>
+              </div>
+              {dupError && <div className="text-xs text-red-600 bg-red-50 rounded px-3 py-2">{dupError}</div>}
+              <button onClick={handleCheckDuplicate} disabled={dupLoading}
+                className="bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white text-sm font-medium px-4 py-2 rounded-lg">
+                {dupLoading ? 'Memeriksa...' : '🔍 Cek Duplikasi'}
+              </button>
+            </div>
+
+            {dupResult && (
+              <div className="mt-4 space-y-3">
+                <div className={`rounded-lg p-3 ${dupResult.isDuplicate ? 'bg-red-50 border border-red-200' : 'bg-green-50 border border-green-200'}`}>
+                  <div className={`text-sm font-semibold ${dupResult.isDuplicate ? 'text-red-700' : 'text-green-700'}`}>
+                    {dupResult.isDuplicate ? '⚠ Duplikasi Terdeteksi' : '✓ Topik Aman'}
+                  </div>
+                  <div className={`text-xs mt-1 ${dupResult.isDuplicate ? 'text-red-600' : 'text-green-600'}`}>
+                    {dupResult.recommendation}
+                  </div>
+                </div>
+                {dupResult.fingerprint?.length > 0 && (
+                  <div>
+                    <div className="text-xs font-medium text-gray-600 mb-1">Topic Fingerprint (keyword utama):</div>
+                    <div className="flex flex-wrap gap-1">
+                      {dupResult.fingerprint.map(kw => (
+                        <span key={kw} className="text-xs bg-blue-50 text-blue-700 px-2 py-0.5 rounded-full">{kw}</span>
+                      ))}
+                    </div>
+                  </div>
+                )}
+                {dupResult.duplicates?.length > 0 && (
+                  <div>
+                    <div className="text-xs font-medium text-gray-600 mb-2">Artikel mirip yang ditemukan:</div>
+                    <div className="space-y-2">
+                      {dupResult.duplicates.map((d, i) => (
+                        <div key={i} className="flex items-center gap-3 bg-gray-50 rounded-lg px-3 py-2">
+                          <div className="flex-1 min-w-0">
+                            <div className="text-xs font-medium text-gray-800 truncate">{d.title}</div>
+                          </div>
+                          <span className={`text-xs font-bold px-2 py-0.5 rounded-full shrink-0 ${
+                            d.risk === 'high' ? 'bg-red-100 text-red-700' :
+                            d.risk === 'medium' ? 'bg-yellow-100 text-yellow-700' :
+                            'bg-gray-100 text-gray-600'
+                          }`}>{d.overlap}%</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+
+          {/* Humanizer info */}
+          <div className="bg-blue-50 rounded-xl border border-blue-200 p-5">
+            <h3 className="font-semibold text-blue-800 mb-3">Phase 8 — Quality & Humanizer Engine</h3>
+            <div className="space-y-2 text-xs text-blue-700">
+              <div className="font-medium">Step 8.1 — Humanizer Layer (4 Level):</div>
+              <div className="ml-3 space-y-1">
+                <div>• <strong>Level 1</strong>: Variasi panjang paragraf, deteksi 3+ paragraf berturut-turut mirip</div>
+                <div>• <strong>Level 2</strong>: Ganti 50+ frasa klise AI, rotasi atribusi kutipan, sisipkan konjungsi</div>
+                <div>• <strong>Level 3</strong>: Referensi waktu kontekstual, detail geografis Indonesia, pertanyaan retoris, uncertainty markers</div>
+                <div>• <strong>Level 4</strong>: Variasi cara mengakhiri artikel, "sekitar X" linguistic imprecision</div>
+              </div>
+              <div className="font-medium mt-2">Step 8.2 — AI Detection Pre-Check:</div>
+              <div className="ml-3">Dijalankan sebelum LLM edit — deteksi pembuka klise, penutup klise, kata berlebihan, pola paragraf seragam, transisi robot.</div>
+              <div className="font-medium mt-2">Step 8.3 — Duplikasi Guard:</div>
+              <div className="ml-3">Pre-write check di WriterAgent — keyword overlap ≥65% → enqueue DUPLICATE_RISK → ChiefEditor memutuskan pivot angle atau skip.</div>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* ── Tab: Keamanan ─────────────────────────────────────────────────────── */}
       {activeTab === 'Keamanan' && (
         <div className="space-y-6">
@@ -711,7 +994,7 @@ export default function Settings({ onLogout }) {
                 ['Phase 5 — Fotografer & WordPress Publisher', true],
                 ['Phase 6 — Scheduler & Full Automation', true],
                 ['Phase 7 — Dashboard Full (semua menu real)', true],
-                ['Phase 8 — Quality & Humanizer Engine', false],
+                ['Phase 8 — Quality & Humanizer Engine', true],
                 ['Phase 9 — Rapat Redaksi Engine', false],
                 ['Phase 10 — Innovation Layer', false],
                 ['Phase 11 — Hardening & Production Ready', false],

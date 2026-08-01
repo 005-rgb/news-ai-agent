@@ -17,6 +17,16 @@ const STATUS_COLORS = {
 };
 
 const PIPELINE_STEPS = ['RESEARCH','WRITE','EDIT','QC','IMAGE','SEO','PUBLISH'];
+
+// Phase 8: check if article has duplicate risk flag in content_versions
+function _isDuplicateRisk(article) {
+  try {
+    const cv = article.content_versions;
+    if (!cv) return false;
+    const obj = typeof cv === 'string' ? JSON.parse(cv) : cv;
+    return obj?.isDuplicate === true;
+  } catch { return false; }
+}
 const FORMATS = ['berita_singkat','berita_panjang','jurnal_review','feature_opini','listicle','faq_article','evergreen'];
 const CATEGORIES = ['umum','teknologi','bisnis','kesehatan','pendidikan','politik','olahraga','hiburan','sains','akademik'];
 
@@ -324,6 +334,7 @@ export default function Articles() {
                     <td className="px-3 py-3 text-gray-800 font-medium max-w-xs">
                       <div className="truncate text-xs">{a.title || '(Dalam proses...)'}</div>
                       {a.needs_human_review && <div className="text-xs text-amber-600 mt-0.5">👤 Butuh review</div>}
+                      {_isDuplicateRisk(a) && <div className="text-xs text-orange-600 mt-0.5">⚠ Duplicate risk</div>}
                     </td>
                     <td className="px-3 py-3 text-gray-500 text-xs">{a.site_name || '—'}</td>
                     <td className="px-3 py-3 text-gray-500 text-xs">{a.format?.replace(/_/g,' ') || '—'}</td>

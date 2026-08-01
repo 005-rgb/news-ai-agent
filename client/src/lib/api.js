@@ -113,6 +113,13 @@ export const rapat = {
   trigger:     ()   => api.post('/rapat/trigger'),
 };
 
+// ── Quality (Phase 8) ─────────────────────────────────────────────────────────
+export const quality = {
+  testHumanizer:   (text, level) => api.post('/quality/test-humanizer', { text, level }),
+  checkDuplicate:  (topic, site_id, threshold) => api.post('/quality/check-duplicate', { topic, site_id, threshold }),
+  stats:           (days)  => api.get('/quality/stats', { params: { days } }),
+};
+
 // ── Settings ──────────────────────────────────────────────────────────────────
 export const settings = {
   get:                 ()          => api.get('/settings'),

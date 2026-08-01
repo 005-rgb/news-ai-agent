@@ -152,6 +152,99 @@ Jawab hanya dengan JSON berikut, tanpa teks lain:
     };
   }
 
+  // ── Phase 8: Duplikasi Guard resolver ───────────────────────────────────────
+
+  /**
+   * Resolve DUPLICATE_RISK: putuskan angle baru atau skip topik.
+   * Dipanggil oleh job DUPLICATE_RISK (Phase 8 Step 8.3).
+   *
+   * @param {string} articleId
+   * @param {string} originalTopic
+   * @param {Array<{articleId, title, overlap}>} duplicates
+   * @param {object} siteInfo   — { name, niche, persona_description }
+   * @returns {{ decision: 'pivot'|'skip', newAngle?: string, reason: string }}
+   */
+  async resolveDuplicateRisk(articleId, originalTopic, duplicates, siteInfo = {}) {
+    await this.log('info', `Resolving duplicate risk for article ${articleId}`, {
+      articleId,
+      originalTopic,
+      topDuplicate: duplicates[0]?.title,
+      topOverlap:   duplicates[0]?.overlap,
+    });
+
+    const dupList = duplicates
+      .slice(0, 3)
+      .map((d, i) => `${i + 1}. "${d.title}" (${Math.round(d.overlap * 100)}% overlap)`)
+      .join('\n');
+
+    const prompt = `Kamu adalah pemimpin redaksi berpengalaman media online Indonesia.
+
+TOPIK BARU yang akan ditulis: "${originalTopic}"
+
+ARTIKEL YANG SUDAH ADA di site "${siteInfo.name || 'tidak diketahui'}" (niche: ${siteInfo.niche || '-'}):
+${dupList}
+
+KEPUTUSAN:
+Topik baru ini mirip (>60% overlap) dengan artikel yang sudah ada.
+Sebagai pemimpin redaksi, putuskan:
+
+OPSI A — PIVOT: Ubah sudut pandang topik menjadi angle yang berbeda dan lebih segar.
+OPSI B — SKIP: Topik terlalu mirip, tidak ada angle baru yang worth it saat ini.
+
+Faktor pertimbangan:
+- Niche site: ${siteInfo.niche || 'umum'}
+- Apakah ada angle baru yang benar-benar berbeda?
+- Apakah artikel existing sudah sangat komprehensif?
+
+Jawab HANYA dengan JSON:
+{
+  "decision": "pivot" atau "skip",
+  "newAngle": "deskripsi angle baru jika pivot (1-2 kalimat), null jika skip",
+  "newTopic": "judul baru yang lebih spesifik jika pivot, null jika skip",
+  "reason": "alasan singkat keputusan (1 kalimat)"
+}`;
+
+    let result;
+    try {
+      const llmRes = await this.callLLM(prompt, { maxTokens: 300, temperature: 0.7 });
+      const raw = (llmRes.text || llmRes.content || '').trim()
+        .replace(/^```json\s*/i, '').replace(/\s*```$/, '');
+      result = JSON.parse(raw.match(/\{[\s\S]*\}/)?.[0] || '{}');
+    } catch (err) {
+      await this.log('warn', `LLM duplicate resolve failed: ${err.message} — defaulting to pivot`, { articleId });
+      result = {
+        decision: 'pivot',
+        newAngle: `Liputan mendalam dengan fokus berbeda dari "${duplicates[0]?.title}"`,
+        newTopic: null,
+        reason: 'LLM gagal, fallback ke pivot otomatis',
+      };
+    }
+
+    const decision = result.decision === 'skip' ? 'skip' : 'pivot';
+
+    await this.log('info', `Duplicate risk resolved: ${decision.toUpperCase()} — ${result.reason}`, {
+      articleId,
+      decision,
+      newAngle: result.newAngle,
+    });
+
+    // Update article with the decision
+    if (decision === 'skip') {
+      const { query } = require('../db');
+      await query(
+        `UPDATE articles SET status = 'failed', content_versions = content_versions || $1::jsonb WHERE id = $2`,
+        [JSON.stringify({ duplicateDecision: 'skip', reason: result.reason }), articleId]
+      );
+    }
+
+    return {
+      decision,
+      newAngle:  result.newAngle  || null,
+      newTopic:  result.newTopic  || null,
+      reason:    result.reason    || 'Keputusan otomatis',
+    };
+  }
+
   // ── Phase 9 stub ─────────────────────────────────────────────────────────────
 
   /**

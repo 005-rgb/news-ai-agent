@@ -132,6 +132,54 @@ async function dispatchJob(job) {
       await agent.run(job.article_id, payload);
       break;
     }
+    case 'DUPLICATE_RISK': {
+      // Phase 8 Step 8.3 — ChiefEditor resolves duplicate risk decision
+      const ChiefEditorAgent = require('../agents/chiefEditor');
+      const { query: dbQuery } = require('../db');
+      const agent = new ChiefEditorAgent();
+
+      const { originalTopic, duplicates, siteId } = payload;
+
+      // Load site info for context
+      let siteInfo = {};
+      if (siteId) {
+        const { rows: siteRows } = await dbQuery(
+          `SELECT name, niche, persona_description FROM sites WHERE id = $1`, [siteId]
+        );
+        siteInfo = siteRows[0] || {};
+      }
+
+      const result = await agent.resolveDuplicateRisk(
+        job.article_id, originalTopic, duplicates || [], siteInfo
+      );
+
+      // If pivot: update article brief with new angle and re-enqueue WRITE
+      if (result.decision === 'pivot' && payload.brief) {
+        const { enqueueJob: eq } = require('../services/jobQueue');
+        const updatedBrief = {
+          ...payload.brief,
+          duplicatePivot: true,
+          originalTopic,
+          pivotAngle: result.newAngle,
+          pivotTopic: result.newTopic,
+          revisionNotes: `Topik diganti sudut pandang: ${result.newAngle}`,
+        };
+        // Update article title if newTopic provided
+        if (result.newTopic) {
+          await dbQuery(
+            `UPDATE articles SET title = $1 WHERE id = $2`,
+            [result.newTopic, job.article_id]
+          );
+        }
+        await eq('WRITE', job.article_id, {
+          brief: updatedBrief,
+          format: payload.format,
+          siteId,
+          category: payload.category,
+        }, 'high');
+      }
+      break;
+    }
     default:
       throw new Error(`Unknown job type: ${type}`);
   }
