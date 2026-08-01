@@ -19,11 +19,33 @@ pool.on('error', (err) => {
 // ── Migration DDL ─────────────────────────────────────────────────────────────
 
 const MIGRATION_SQL = `
--- Enable pgcrypto jika tersedia (PostgreSQL 13+ sudah punya gen_random_uuid() built-in)
-DO $$ BEGIN
-  CREATE EXTENSION IF NOT EXISTS "pgcrypto";
-EXCEPTION WHEN OTHERS THEN
-  NULL; -- abaikan jika tidak tersedia, gen_random_uuid() tetap berjalan di PG 13+
+-- Pastikan gen_random_uuid() tersedia di semua versi PostgreSQL
+-- PG 13+: built-in. PG < 13: coba pgcrypto, fallback ke fungsi manual.
+DO $$
+BEGIN
+  -- Coba pakai yang sudah ada dulu
+  PERFORM gen_random_uuid();
+EXCEPTION WHEN undefined_function THEN
+  -- Coba aktifkan pgcrypto
+  BEGIN
+    CREATE EXTENSION IF NOT EXISTS "pgcrypto";
+  EXCEPTION WHEN OTHERS THEN
+    -- pgcrypto tidak tersedia, buat fungsi fallback manual
+    CREATE OR REPLACE FUNCTION gen_random_uuid()
+    RETURNS uuid
+    LANGUAGE sql
+    AS $func$
+      SELECT uuid_in(
+        overlay(
+          overlay(
+            md5(random()::text || ':' || random()::text || ':' || clock_timestamp()::text)
+            placing '4' from 13
+          )
+          placing to_hex(floor(random() * 4 + 8)::int) from 17
+        )::cstring
+      );
+    $func$;
+  END;
 END $$;
 
 -- ── 1. sites ─────────────────────────────────────────────────────────────────
