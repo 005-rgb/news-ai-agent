@@ -35,7 +35,11 @@ The workflow `Start application` runs `npm run build && node server/index.js`.
 | 4 | Writing Standards Engine | ✅ Done |
 | 5 | Fotografer + SEO + WordPress Publisher | ✅ Done |
 | 6 | Scheduler & Full Automation | ✅ Done |
-| 7–11 | Dashboard, Quality, Rapat, Innovation, Hardening | 🔜 Planned |
+| 7 | Dashboard Full (8 halaman, semua real) | ✅ Done |
+| 8 | Quality & Humanizer Engine | ✅ Done |
+| 9 | Rapat Redaksi Engine | 🔜 Planned |
+| 10 | Innovation Layer | 🔜 Planned |
+| 11 | Hardening & Production Ready | 🔜 Planned |
 
 ## Login
 
