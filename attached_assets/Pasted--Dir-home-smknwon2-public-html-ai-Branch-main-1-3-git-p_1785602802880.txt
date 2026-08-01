@@ -1,0 +1,82 @@
+
+  Dir  : /home/smknwon2/public_html/ai
+  Branch: main
+
+▶ [1/3] git pull...
+remote: Enumerating objects: 27, done.
+remote: Counting objects: 100% (27/27), done.
+remote: Compressing objects: 100% (11/11), done.
+remote: Total 23 (delta 12), reused 23 (delta 12), pack-reused 0 (from 0)
+Unpacking objects: 100% (23/23), 722.89 KiB | 2.18 MiB/s, done.
+From https://github.com/005-rgb/news-ai-agent
+ * branch            main       -> FETCH_HEAD
+   3249e70..4169be5  main       -> origin/main
+Updating 3249e70..4169be5
+Fast-forward
+ .../Pasted--public-html-ai-22-smknwon2-tirtonirmolo-ai-public-html_1785602591431.txt          | 101 +++++++++++++++++++++++++++++++++
+ .../Pasted-Skip-to-main-content-Skip-to-main-content-cPanel-logo-T_1785602267346.txt          | 138 ++++++++++++++++++++++++++++++++++++++++++++++
+ attached_assets/image_1785602043045.png                                                       | Bin 0 -> 170685 bytes
+ attached_assets/image_1785602164869.png                                                       | Bin 0 -> 199837 bytes
+ attached_assets/image_1785602295872.png                                                       | Bin 0 -> 162956 bytes
+ attached_assets/image_1785602672292.png                                                       | Bin 0 -> 237985 bytes
+ server/db.js                                                                                  |   8 ++-
+ 7 files changed, 245 insertions(+), 2 deletions(-)
+ create mode 100644 attached_assets/Pasted--public-html-ai-22-smknwon2-tirtonirmolo-ai-public-html_1785602591431.txt
+ create mode 100644 attached_assets/Pasted-Skip-to-main-content-Skip-to-main-content-cPanel-logo-T_1785602267346.txt
+ create mode 100644 attached_assets/image_1785602043045.png
+ create mode 100644 attached_assets/image_1785602164869.png
+ create mode 100644 attached_assets/image_1785602295872.png
+ create mode 100644 attached_assets/image_1785602672292.png
+   ✓ Kode terbaru sudah ditarik
+
+▶ [2/3] npm install --production...
+
+up to date, audited 184 packages in 2s
+
+47 packages are looking for funding
+  run `npm fund` for details
+
+2 moderate severity vulnerabilities
+
+To address all issues (including breaking changes), run:
+  npm audit fix --force
+
+Run `npm audit` for details.
+   ✓ Production dependencies siap
+
+▶ [3/3] Restart aplikasi...
+   ✓ Restart signal dikirim (tmp/restart.txt)
+
+╔═══════════════════════════════════════════╗
+║  ✅  Deploy selesai!                      ║
+║  🌐  https://agentic.skansagiri.sch.id   ║
+╚═══════════════════════════════════════════╝
+
+  Jika app belum merespons, klik RESTART
+  di cPanel > Node.js Selector
+
+[public_html/ai (22)] [smknwon2@tirtonirmolo ai]$ node server/db.js migrate
+[DB] Running migration...
+[DB] Migration failed: function gen_random_uuid() does not exist
+error: function gen_random_uuid() does not exist
+    at /home/smknwon2/nodevenv/public_html/ai/22/lib/node_modules/pg/lib/client.js:652:17
+    at process.processTicksAndRejections (node:internal/process/task_queues:103:5)
+    at async migrate (/home/smknwon2/public_html/ai/server/db.js:467:5) {
+  length: 206,
+  severity: 'ERROR',
+  code: '42883',
+  detail: undefined,
+  hint: 'No function matches the given name and argument types. You might need to add explicit type casts.',
+  position: undefined,
+  internalPosition: undefined,
+  internalQuery: undefined,
+  where: undefined,
+  schema: undefined,
+  table: undefined,
+  column: undefined,
+  dataType: undefined,
+  constraint: undefined,
+  file: 'parse_func.c',
+  line: '523',
+  routine: 'ParseFuncOrColumn'
+}
