@@ -153,6 +153,16 @@ class PublisherAgent extends BaseAgent {
     );
 
     await this.log('info', `✅ Terbit: ${wordpressUrl}`, { articleId, wordpressPostId, wordpressUrl });
+
+    // ── Phase 10 Step 10.1: Update persona memory (non-blocking) ─────────
+    setImmediate(async () => {
+      try {
+        const PersonaMemoryBuilder = require('./personaMemoryBuilder');
+        const pmb = new PersonaMemoryBuilder();
+        await pmb.buildForArticle(articleId, effectiveSiteId);
+      } catch (e) { /* non-blocking — tidak gagalkan publish */ }
+    });
+
     return { published: true, wordpressPostId, wordpressUrl };
   }
 

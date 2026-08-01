@@ -653,6 +653,43 @@ async function start() {
   }, { timezone: 'Asia/Jakarta' });
   _systemCrons.push(rapatTask);
 
+  // ── Phase 10 Step 10.2: Evergreen Update Engine — setiap malam 02:00 WIB ──
+  const evergreenTask = cron.schedule('0 2 * * *', async () => {
+    try {
+      const { scanAndEnqueueEvergreenUpdates } = require('./evergreenEngine');
+      const result = await scanAndEnqueueEvergreenUpdates();
+      await logger.info('Scheduler', `Phase 10 Evergreen scan: ${result.enqueued} artikel di-enqueue untuk update`);
+    } catch (err) {
+      await logger.error('Scheduler', `Phase 10 Evergreen scan error: ${err.message}`);
+    }
+  }, { timezone: 'Asia/Jakarta' });
+  _systemCrons.push(evergreenTask);
+
+  // ── Phase 10 Step 10.4: Prompt Evolution — setiap Minggu 23:00 WIB ──────
+  const promptEvoTask = cron.schedule('0 23 * * 0', async () => {
+    try {
+      const { runWeeklyEvaluation } = require('./promptEvolution');
+      const result = await runWeeklyEvaluation();
+      await logger.info('Scheduler', `Phase 10 Prompt Evolution: ${result.promoted} dipromosikan, ${result.deprecated} deprecated`);
+    } catch (err) {
+      await logger.error('Scheduler', `Phase 10 Prompt Evolution error: ${err.message}`);
+    }
+  }, { timezone: 'Asia/Jakarta' });
+  _systemCrons.push(promptEvoTask);
+
+  // ── Phase 10 Step 10.5: Smart Timing Learner — setiap Sabtu 22:00 WIB ───
+  const smartTimingTask = cron.schedule('0 22 * * 6', async () => {
+    try {
+      const { runTimingAnalysis } = require('./smartTimingLearner');
+      const result = await runTimingAnalysis();
+      await logger.info('Scheduler', `Phase 10 Smart Timing: ${result.updated}/${result.analyzed} site diperbarui`);
+    } catch (err) {
+      await logger.error('Scheduler', `Phase 10 Smart Timing error: ${err.message}`);
+    }
+  }, { timezone: 'Asia/Jakarta' });
+  _systemCrons.push(smartTimingTask);
+
+  await logger.info('Scheduler', 'Phase 10 Scheduler started: evergreen(02:00), prompt-evo(Sun23:00), smart-timing(Sat22:00)');
   await logger.info('Scheduler', 'Phase 9 Scheduler started: site-crons, source-refresh(6h), article-check(01:00), stats(23:50), competitor-scan(Sat20:00), perf-analysis(Sat21:00), trend-predict(Mon06:30), rapat(Mon07:00)');
 }
 

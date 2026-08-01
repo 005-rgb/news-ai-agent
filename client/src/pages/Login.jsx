@@ -75,7 +75,7 @@ export default function Login({ onLogin }) {
         </form>
 
         <p className="text-center text-gray-500 text-xs mt-4">
-          Phase 9 — Rapat Redaksi Engine ✓
+          Phase 10 — Innovation Layer ✓
         </p>
       </div>
     </div>

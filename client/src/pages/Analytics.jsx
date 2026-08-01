@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { analytics, sites as sitesApi } from '../lib/api';
 
-const TABS = ['Produksi','E-E-A-T Mingguan','Provider','Prompt Evolution','Evergreen','Key Usage','Error Rate','System Logs'];
+const TABS = ['Produksi','E-E-A-T Mingguan','Provider','Prompt Evolution','Evergreen','Key Usage','Error Rate','System Logs','Smart Timing','Link Network','Evergreen Updates','Persona'];
 
 function TabBtn({ label, active, onClick }) {
   return (
@@ -65,10 +65,18 @@ export default function Analytics() {
   const [logsTotal, setLogsTotal] = useState(0);
   const [logsPage, setLogsPage] = useState(1);
   const [loading, setLoading] = useState(true);
+  // Phase 10
+  const [smartTiming, setSmartTiming] = useState([]);
+  const [linkNetwork, setLinkNetwork] = useState({ stats: {}, topArticles: [] });
+  const [evergreenUpdates, setEvergreenUpdates] = useState([]);
+  const [personaSiteId, setPersonaSiteId] = useState('');
+  const [personaData, setPersonaData] = useState(null);
+  const [personaLoading, setPersonaLoading] = useState(false);
+  const [promptAction, setPromptAction] = useState({ id: null, status: '' });
 
   const load = async () => {
     setLoading(true);
-    const [prod, prov, eeat, pr, ev, ku, er, l, sitesRes] = await Promise.all([
+    const [prod, prov, eeat, pr, ev, ku, er, l, sitesRes, st, ln, eu] = await Promise.all([
       analytics.production({ days: prodDays, ...(prodSiteId ? { site_id: prodSiteId } : {}) }).catch(() => ({ data: [] })),
       analytics.providers().catch(() => ({ data: [] })),
       analytics.eeAtWeekly().catch(() => ({ data: [] })),
@@ -78,6 +86,10 @@ export default function Analytics() {
       analytics.errorRate().catch(() => ({ data: [] })),
       analytics.logs({ level: logFilter.level, search: logFilter.search, agent: logFilter.agent, limit: 50, page: logsPage }).catch(() => ({ data: [], pagination: { total: 0 } })),
       sitesApi.list().catch(() => ({ data: [] })),
+      // Phase 10
+      analytics.smartTiming().catch(() => ({ data: [] })),
+      analytics.linkNetwork().catch(() => ({ stats: {}, topArticles: [] })),
+      analytics.evergreenUpdates().catch(() => ({ data: [] })),
     ]);
     setProduction(prod.data || []);
     setProviders(prov.data || []);
@@ -89,7 +101,24 @@ export default function Analytics() {
     setLogs(l.data || []);
     setLogsTotal(l.pagination?.total || 0);
     setSitesList(sitesRes.data || []);
+    // Phase 10
+    setSmartTiming(st.data || []);
+    setLinkNetwork({ stats: ln.stats || {}, topArticles: ln.topArticles || [] });
+    setEvergreenUpdates(eu.data || []);
     setLoading(false);
+  };
+
+  const handlePromptAction = async (id, action) => {
+    setPromptAction({ id, status: 'loading' });
+    try {
+      if (action === 'promote')      await analytics.promotePrompt(id);
+      if (action === 'deprecate')    await analytics.deprecatePrompt(id);
+      if (action === 'experimental') await analytics.experimentalPrompt(id);
+      setPromptAction({ id, status: 'done' });
+      await load();
+    } catch (e) {
+      setPromptAction({ id, status: 'error' });
+    }
   };
 
   useEffect(() => { load(); }, [logsPage, logFilter.level, prodDays, prodSiteId]);
@@ -320,10 +349,47 @@ export default function Analytics() {
                             {p.avg_eeat || '—'}
                           </span>
                         </td>
+                        <td className="px-3 py-3">
+                          <div className="flex gap-1 flex-wrap">
+                            {!p.is_champion && (
+                              <button
+                                onClick={() => handlePromptAction(p.id, 'promote')}
+                                disabled={promptAction.id === p.id && promptAction.status === 'loading'}
+                                className="text-xs px-1.5 py-0.5 bg-yellow-100 text-yellow-700 rounded hover:bg-yellow-200 disabled:opacity-50"
+                                title="Set sebagai Champion"
+                              >★ Champion</button>
+                            )}
+                            {p.status !== 'experimental' && !p.is_champion && (
+                              <button
+                                onClick={() => handlePromptAction(p.id, 'experimental')}
+                                disabled={promptAction.id === p.id && promptAction.status === 'loading'}
+                                className="text-xs px-1.5 py-0.5 bg-purple-100 text-purple-700 rounded hover:bg-purple-200 disabled:opacity-50"
+                                title="Set sebagai A/B Experimental"
+                              >A/B</button>
+                            )}
+                            {p.status !== 'deprecated' && !p.is_champion && (
+                              <button
+                                onClick={() => handlePromptAction(p.id, 'deprecate')}
+                                disabled={promptAction.id === p.id && promptAction.status === 'loading'}
+                                className="text-xs px-1.5 py-0.5 bg-red-100 text-red-600 rounded hover:bg-red-200 disabled:opacity-50"
+                                title="Deprecate prompt"
+                              >Dep.</button>
+                            )}
+                          </div>
+                        </td>
                       </tr>
                     ))}
                   </tbody>
                 </table>
+              )}
+              {prompts.length > 0 && (
+                <div className="mt-3 pt-3 border-t border-gray-100 flex items-center justify-between">
+                  <p className="text-xs text-gray-400">Evaluasi otomatis setiap Minggu 23:00 WIB. 10% artikel menggunakan prompt <span className="bg-purple-100 text-purple-700 px-1 rounded">A/B Experimental</span></p>
+                  <button
+                    onClick={async () => { await analytics.runPromptEvolution(); await load(); }}
+                    className="text-xs bg-gray-100 hover:bg-gray-200 px-3 py-1.5 rounded-lg font-medium"
+                  >▶ Jalankan Evaluasi Manual</button>
+                </div>
               )}
             </div>
           )}
@@ -528,6 +594,237 @@ export default function Analytics() {
                     </div>
                   )}
                 </>
+              )}
+            </div>
+          )}
+
+          {/* ── Phase 10 Tab: Smart Timing ─────────────────────────────── */}
+          {activeTab === 'Smart Timing' && (
+            <div className="space-y-4">
+              <div className="bg-white rounded-xl border border-gray-200 p-5">
+                <div className="flex items-center justify-between mb-2">
+                  <div>
+                    <h3 className="font-semibold text-gray-800">Smart Timing Learner</h3>
+                    <p className="text-xs text-gray-500 mt-0.5">Jam posting optimal per kategori per site, dipelajari otomatis dari data performa. Diperbarui setiap Sabtu 22:00 WIB.</p>
+                  </div>
+                  <button
+                    onClick={async () => { await analytics.runSmartTiming(); await load(); }}
+                    className="text-xs bg-indigo-50 hover:bg-indigo-100 text-indigo-700 px-3 py-1.5 rounded-lg font-medium"
+                  >▶ Analisis Sekarang</button>
+                </div>
+                {smartTiming.length === 0 ? (
+                  <p className="text-gray-400 text-sm text-center py-8">Belum ada data smart timing. Butuh minimal 10 artikel published per kategori untuk analisis.</p>
+                ) : (
+                  <div className="space-y-4 mt-4">
+                    {smartTiming.map(site => (
+                      <div key={site.siteId} className="border border-gray-100 rounded-lg p-4">
+                        <div className="flex items-center justify-between mb-3">
+                          <h4 className="font-medium text-gray-800 text-sm">{site.siteName}</h4>
+                          {site.lastUpdated && (
+                            <span className="text-xs text-gray-400">
+                              Update: {new Date(site.lastUpdated).toLocaleDateString('id-ID')}
+                            </span>
+                          )}
+                        </div>
+                        {site.categories.length === 0 ? (
+                          <p className="text-xs text-gray-400">Belum cukup data untuk site ini.</p>
+                        ) : (
+                          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-2">
+                            {site.categories.map(cat => (
+                              <div key={cat.category} className={`rounded-lg p-3 border ${cat.confidence >= 0.8 ? 'bg-green-50 border-green-200' : cat.confidence >= 0.6 ? 'bg-blue-50 border-blue-200' : 'bg-gray-50 border-gray-200'}`}>
+                                <div className="text-xs font-medium text-gray-700 capitalize">{cat.category}</div>
+                                <div className="text-xl font-bold text-gray-900 mt-1">{String(cat.best_hour).padStart(2,'0')}:00</div>
+                                <div className="flex items-center justify-between mt-1">
+                                  <span className="text-xs text-gray-500">{cat.samples} sampel</span>
+                                  <span className={`text-xs font-medium ${cat.confidence >= 0.8 ? 'text-green-600' : 'text-blue-600'}`}>
+                                    {Math.round(cat.confidence * 100)}% conf.
+                                  </span>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* ── Phase 10 Tab: Link Network ──────────────────────────────── */}
+          {activeTab === 'Link Network' && (
+            <div className="space-y-4">
+              <div className="bg-white rounded-xl border border-gray-200 p-5">
+                <h3 className="font-semibold text-gray-800 mb-1">Link Intelligence Network</h3>
+                <p className="text-xs text-gray-500 mb-4">Statistik jaringan link lintas-site yang dibuat oleh SEO Agent. Termasuk cross-site linking untuk otoritas topik.</p>
+                <div className="grid grid-cols-2 md:grid-cols-5 gap-3 mb-6">
+                  {[
+                    { label: 'Total Link (30 hari)', val: linkNetwork.stats.total_links || 0, color: 'text-gray-800' },
+                    { label: 'Cross-Site', val: linkNetwork.stats.cross_site_links || 0, color: 'text-blue-600' },
+                    { label: 'Same-Site', val: linkNetwork.stats.same_site_links || 0, color: 'text-green-600' },
+                    { label: 'Artikel Sumber', val: linkNetwork.stats.source_articles || 0, color: 'text-purple-600' },
+                    { label: 'Artikel Target', val: linkNetwork.stats.target_articles || 0, color: 'text-orange-600' },
+                  ].map(item => (
+                    <div key={item.label} className="bg-gray-50 rounded-lg p-3 text-center">
+                      <div className={`text-2xl font-bold ${item.color}`}>{item.val}</div>
+                      <div className="text-xs text-gray-500 mt-1">{item.label}</div>
+                    </div>
+                  ))}
+                </div>
+                <h4 className="font-medium text-gray-700 text-sm mb-3">Artikel Paling Banyak Menerima Link (Authority Pages)</h4>
+                {linkNetwork.topArticles.length === 0 ? (
+                  <p className="text-gray-400 text-sm text-center py-6">Belum ada data link network. Data akan muncul setelah artikel dipublish dengan SEO Agent aktif.</p>
+                ) : (
+                  <table className="w-full text-sm">
+                    <thead className="bg-gray-50">
+                      <tr>
+                        {['Artikel','Site','Incoming Links','Avg E-E-A-T'].map(h => (
+                          <th key={h} className="text-left px-3 py-2 text-xs font-semibold text-gray-600">{h}</th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-gray-100">
+                      {linkNetwork.topArticles.map(a => (
+                        <tr key={a.id} className="hover:bg-gray-50">
+                          <td className="px-3 py-3 max-w-xs">
+                            <div className="text-gray-800 text-xs font-medium line-clamp-2">{a.title}</div>
+                            {a.wordpress_url && (
+                              <a href={a.wordpress_url} target="_blank" rel="noopener" className="text-xs text-blue-500 hover:underline">Lihat ↗</a>
+                            )}
+                          </td>
+                          <td className="px-3 py-3 text-gray-500 text-xs">{a.site_name}</td>
+                          <td className="px-3 py-3">
+                            <span className="bg-blue-100 text-blue-700 text-xs font-bold px-2 py-0.5 rounded-full">{a.incoming_links}</span>
+                          </td>
+                          <td className="px-3 py-3 text-xs font-medium">{a.avg_eeat || '—'}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* ── Phase 10 Tab: Evergreen Updates ────────────────────────── */}
+          {activeTab === 'Evergreen Updates' && (
+            <div className="bg-white rounded-xl border border-gray-200 p-5">
+              <h3 className="font-semibold text-gray-800 mb-1">Riwayat Evergreen Updates</h3>
+              <p className="text-xs text-gray-500 mb-4">Artikel yang sudah diperbarui otomatis oleh Evergreen Engine. Cron berjalan setiap malam 02:00 WIB.</p>
+              {evergreenUpdates.length === 0 ? (
+                <div className="text-center py-10">
+                  <div className="text-4xl mb-3">🌱</div>
+                  <p className="text-gray-500 text-sm font-medium">Belum ada evergreen update</p>
+                  <p className="text-gray-400 text-xs mt-1">Evergreen Engine akan berjalan otomatis setiap malam 02:00 WIB pada artikel yang &gt;30 hari.</p>
+                </div>
+              ) : (
+                <table className="w-full text-sm">
+                  <thead className="bg-gray-50">
+                    <tr>
+                      {['Judul','Site','Format','Diperbarui','Ringkasan Update','Aksi'].map(h => (
+                        <th key={h} className="text-left px-3 py-2 text-xs font-semibold text-gray-600">{h}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-100">
+                    {evergreenUpdates.map(a => (
+                      <tr key={a.id} className="hover:bg-gray-50">
+                        <td className="px-3 py-3 max-w-xs">
+                          <div className="text-gray-800 text-xs font-medium line-clamp-2">{a.title}</div>
+                        </td>
+                        <td className="px-3 py-3 text-gray-500 text-xs whitespace-nowrap">{a.site_name}</td>
+                        <td className="px-3 py-3">
+                          <span className="bg-purple-100 text-purple-700 px-1.5 py-0.5 rounded text-xs">{a.format?.replace(/_/g,' ') || '—'}</span>
+                        </td>
+                        <td className="px-3 py-3 text-gray-500 text-xs whitespace-nowrap">
+                          {a.last_updated_at ? new Date(a.last_updated_at).toLocaleDateString('id-ID') : '—'}
+                        </td>
+                        <td className="px-3 py-3 text-gray-600 text-xs max-w-xs">
+                          <span className="line-clamp-2">{a.update_info?.summary || '—'}</span>
+                        </td>
+                        <td className="px-3 py-3">
+                          {a.wordpress_url ? (
+                            <a href={a.wordpress_url} target="_blank" rel="noopener" className="text-xs text-blue-600 hover:underline">Lihat ↗</a>
+                          ) : <span className="text-gray-300 text-xs">—</span>}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+            </div>
+          )}
+
+          {/* ── Phase 10 Tab: Persona ───────────────────────────────────── */}
+          {activeTab === 'Persona' && (
+            <div className="bg-white rounded-xl border border-gray-200 p-5">
+              <h3 className="font-semibold text-gray-800 mb-1">Persona Memory Builder</h3>
+              <p className="text-xs text-gray-500 mb-4">
+                Profil gaya penulisan setiap site, dibangun otomatis dari artikel yang dipublish. 
+                Writer Agent menggunakan persona ini agar setiap artikel konsisten dengan identitas editorial site.
+              </p>
+              <div className="flex gap-3 mb-5">
+                <select
+                  value={personaSiteId}
+                  onChange={e => { setPersonaSiteId(e.target.value); setPersonaData(null); }}
+                  className="border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500 flex-1"
+                >
+                  <option value="">— Pilih site —</option>
+                  {sitesList.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+                </select>
+                <button
+                  onClick={async () => {
+                    if (!personaSiteId) return;
+                    setPersonaLoading(true);
+                    try {
+                      const res = await analytics.persona(personaSiteId);
+                      setPersonaData(res.data);
+                    } catch (e) {}
+                    setPersonaLoading(false);
+                  }}
+                  disabled={!personaSiteId || personaLoading}
+                  className="px-4 py-2 bg-blue-600 text-white text-sm rounded-lg hover:bg-blue-700 disabled:opacity-50"
+                >
+                  {personaLoading ? 'Memuat...' : 'Lihat Persona'}
+                </button>
+              </div>
+              {personaData ? (
+                <div className="space-y-4">
+                  <div className="flex items-center justify-between">
+                    <h4 className="font-medium text-gray-800">{personaData.name}</h4>
+                    <span className="text-xs text-gray-400">
+                      Update: {personaData.updated_at ? new Date(personaData.updated_at).toLocaleDateString('id-ID') : '—'}
+                    </span>
+                  </div>
+                  {personaData.persona_memory ? (
+                    <div className="bg-gradient-to-br from-blue-50 to-indigo-50 rounded-xl p-4 border border-blue-100">
+                      <div className="flex items-center gap-2 mb-3">
+                        <span className="text-blue-600 text-lg">🧠</span>
+                        <span className="text-xs font-semibold text-blue-700 uppercase tracking-wide">Persona Memory (dibangun dari artikel)</span>
+                      </div>
+                      <div className="text-sm text-gray-700 leading-relaxed whitespace-pre-wrap font-[inherit]">
+                        {personaData.persona_memory}
+                      </div>
+                    </div>
+                  ) : (
+                    <div className="bg-gray-50 rounded-xl p-4 text-center">
+                      <p className="text-gray-500 text-sm">Persona Memory belum dibangun untuk site ini.</p>
+                      <p className="text-gray-400 text-xs mt-1">Akan diperbarui otomatis setelah artikel pertama dipublish ke WordPress.</p>
+                    </div>
+                  )}
+                  {personaData.persona_description && (
+                    <div className="bg-amber-50 rounded-xl p-4 border border-amber-100">
+                      <div className="text-xs font-semibold text-amber-700 uppercase tracking-wide mb-2">Deskripsi Manual (dari pengaturan site)</div>
+                      <p className="text-sm text-gray-700">{personaData.persona_description}</p>
+                    </div>
+                  )}
+                </div>
+              ) : (
+                <div className="text-center py-10 text-gray-400">
+                  <div className="text-4xl mb-3">🧠</div>
+                  <p className="text-sm">Pilih site untuk melihat persona memorynya.</p>
+                </div>
               )}
             </div>
           )}

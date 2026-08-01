@@ -907,7 +907,7 @@ export default function Settings({ onLogout }) {
 
           {/* Humanizer info */}
           <div className="bg-blue-50 rounded-xl border border-blue-200 p-5">
-            <h3 className="font-semibold text-blue-800 mb-3">Phase 9 — Rapat Redaksi Engine</h3>
+            <h3 className="font-semibold text-blue-800 mb-3">Phase 10 — Innovation Layer</h3>
             <div className="space-y-2 text-xs text-blue-700">
               <div className="font-medium">Step 8.1 — Humanizer Layer (4 Level):</div>
               <div className="ml-3 space-y-1">
@@ -995,7 +995,7 @@ export default function Settings({ onLogout }) {
                 ['Phase 6 — Scheduler & Full Automation', true],
                 ['Phase 7 — Dashboard Full (semua menu real)', true],
                 ['Phase 8 — Quality & Humanizer Engine', true],
-                ['Phase 9 — Rapat Redaksi Engine', true],
+                ['Phase 10 — Innovation Layer', true],
                 ['Phase 10 — Innovation Layer', false],
                 ['Phase 11 — Hardening & Production Ready', false],
               ].map(([label, done]) => (

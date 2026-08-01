@@ -180,6 +180,13 @@ async function dispatchJob(job) {
       }
       break;
     }
+    case 'EVERGREEN_UPDATE': {
+      // Phase 10 Step 10.2 — Evergreen Update Engine
+      const { EvergreenUpdateProcessor } = require('../services/evergreenEngine');
+      const processor = new EvergreenUpdateProcessor();
+      await processor.run(job.article_id, payload);
+      break;
+    }
     default:
       throw new Error(`Unknown job type: ${type}`);
   }

@@ -199,10 +199,20 @@ class WriterAgent extends BaseAgent {
     const site = await getSitePersona(siteId);
 
     // ── Step 2: Try to load champion template from DB (Phase 4 Step 4.3) ──
-    const dbTemplate = await loadDbTemplate(format);
+    let dbTemplate = await loadDbTemplate(format);
     if (dbTemplate) {
       await this.log('info', `Using DB template: "${dbTemplate.name}" (champion: ${dbTemplate.is_champion})`, { articleId });
     }
+
+    // ── Phase 10 Step 10.4: A/B test — 10% chance pilih experimental prompt ─
+    try {
+      const { maybeSelectExperimental } = require('../services/promptEvolution');
+      const abTemplate = await maybeSelectExperimental(dbTemplate, format);
+      if (abTemplate && abTemplate.isExperimental) {
+        dbTemplate = abTemplate;
+        await this.log('info', `[A/B] Menggunakan prompt experimental: "${abTemplate.name}"`, { articleId, format });
+      }
+    } catch (e) { /* non-blocking */ }
 
     // ── Step 3: Build prompt using selectWritingStandard ──────────────────
     const { prompt, templateName, templateSource } = buildWriterPrompt(brief, format, site, citationStyle, dbTemplate);
@@ -250,10 +260,13 @@ class WriterAgent extends BaseAgent {
     };
 
     // ── Step 6: Simpan dan enqueue EDIT ───────────────────────────────────
+    // Juga simpan prompt_version untuk tracking Phase 10 Prompt Evolution
+    const promptVersionName = dbTemplate?.name || templateName || null;
     await query(
       `UPDATE articles SET content_versions = $1, title = $2, content = $3,
-       provider_used = COALESCE($4, provider_used), status = 'editing' WHERE id = $5`,
-      [JSON.stringify(draft), parsed.title, parsed.content, providerUsed, articleId]
+       provider_used = COALESCE($4, provider_used), prompt_version = COALESCE($5, prompt_version),
+       status = 'editing' WHERE id = $6`,
+      [JSON.stringify(draft), parsed.title, parsed.content, providerUsed, promptVersionName, articleId]
     );
 
     // Update prompt_versions sample_count if DB template was used

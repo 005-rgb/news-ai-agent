@@ -223,6 +223,19 @@ CREATE TABLE IF NOT EXISTS trend_predictions (
   created_at          TIMESTAMPTZ DEFAULT NOW()
 );
 
+-- ── 13 (Phase 10). article_links — Link Intelligence Network ─────────────────
+CREATE TABLE IF NOT EXISTS article_links (
+  id                  UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  source_article_id   UUID REFERENCES articles(id) ON DELETE CASCADE,
+  target_article_id   UUID REFERENCES articles(id) ON DELETE CASCADE,
+  target_url          TEXT NOT NULL,
+  anchor_text         TEXT,
+  is_cross_site       BOOLEAN DEFAULT false,
+  created_at          TIMESTAMPTZ DEFAULT NOW(),
+  updated_at          TIMESTAMPTZ DEFAULT NOW(),
+  UNIQUE (source_article_id, target_article_id)
+);
+
 -- ── Indexes ──────────────────────────────────────────────────────────────────
 CREATE INDEX IF NOT EXISTS idx_articles_site_status    ON articles(site_id, status);
 CREATE INDEX IF NOT EXISTS idx_articles_published_at   ON articles(published_at);
@@ -236,6 +249,9 @@ CREATE INDEX IF NOT EXISTS idx_api_keys_provider       ON api_keys(provider, sta
 CREATE INDEX IF NOT EXISTS idx_sources_categories      ON sources USING GIN(categories);
 CREATE INDEX IF NOT EXISTS idx_content_cal_site_date   ON content_calendar(site_id, scheduled_date, status);
 CREATE INDEX IF NOT EXISTS idx_usage_stats_date        ON usage_stats(date, site_id);
+CREATE INDEX IF NOT EXISTS idx_article_links_source    ON article_links(source_article_id);
+CREATE INDEX IF NOT EXISTS idx_article_links_target    ON article_links(target_article_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_article_links_cross     ON article_links(is_cross_site, created_at);
 
 -- Unique constraint for daily stats upsert (date + site_id combo)
 DO $$

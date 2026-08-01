@@ -40,6 +40,16 @@ export const analytics = {
   evergreen:  ()          => api.get('/analytics/evergreen'),
   keyUsage:   ()          => api.get('/analytics/key-usage'),
   errorRate:  ()          => api.get('/analytics/error-rate'),
+  // Phase 10
+  linkNetwork:        ()      => api.get('/analytics/link-network'),
+  smartTiming:        ()      => api.get('/analytics/smart-timing'),
+  runSmartTiming:     ()      => api.post('/analytics/smart-timing/run'),
+  evergreenUpdates:   ()      => api.get('/analytics/evergreen-updates'),
+  persona:            (siteId) => api.get(`/analytics/persona/${siteId}`),
+  promotePrompt:      (id)    => api.post(`/analytics/prompts/${id}/promote`),
+  deprecatePrompt:    (id)    => api.post(`/analytics/prompts/${id}/deprecate`),
+  experimentalPrompt: (id)    => api.post(`/analytics/prompts/${id}/experimental`),
+  runPromptEvolution: ()      => api.post('/analytics/prompt-evolution/run'),
 };
 
 // ── Sites ─────────────────────────────────────────────────────────────────────

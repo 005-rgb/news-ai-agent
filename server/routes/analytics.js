@@ -240,4 +240,104 @@ router.get('/error-rate', async (req, res, next) => {
   } catch (err) { next(err); }
 });
 
+// ═══════════════════════════════════════════════════════════════════════════
+// PHASE 10 — Innovation Layer endpoints
+// ═══════════════════════════════════════════════════════════════════════════
+
+// POST /api/v1/analytics/prompts/:id/promote — force-promote prompt ke champion
+router.post('/prompts/:id/promote', async (req, res, next) => {
+  try {
+    const { adminPromote } = require('../services/promptEvolution');
+    const result = await adminPromote(req.params.id);
+    res.json({ success: true, ...result });
+  } catch (err) { next(err); }
+});
+
+// POST /api/v1/analytics/prompts/:id/deprecate — force-deprecate prompt
+router.post('/prompts/:id/deprecate', async (req, res, next) => {
+  try {
+    const { adminDeprecate } = require('../services/promptEvolution');
+    const result = await adminDeprecate(req.params.id);
+    res.json({ success: true, ...result });
+  } catch (err) { next(err); }
+});
+
+// POST /api/v1/analytics/prompts/:id/experimental — set prompt as experimental (A/B test)
+router.post('/prompts/:id/experimental', async (req, res, next) => {
+  try {
+    const { adminSetExperimental } = require('../services/promptEvolution');
+    const result = await adminSetExperimental(req.params.id);
+    res.json({ success: true, ...result });
+  } catch (err) { next(err); }
+});
+
+// POST /api/v1/analytics/prompt-evolution/run — trigger manual evaluation
+router.post('/prompt-evolution/run', async (req, res, next) => {
+  try {
+    const { runWeeklyEvaluation } = require('../services/promptEvolution');
+    const result = await runWeeklyEvaluation();
+    res.json({ success: true, ...result });
+  } catch (err) { next(err); }
+});
+
+// GET /api/v1/analytics/link-network — Link Intelligence stats
+router.get('/link-network', async (req, res, next) => {
+  try {
+    const { getLinkNetworkStats, getTopLinkedArticles } = require('../services/linkIntelligence');
+    const [stats, topArticles] = await Promise.all([
+      getLinkNetworkStats(),
+      getTopLinkedArticles(10),
+    ]);
+    res.json({ success: true, stats, topArticles });
+  } catch (err) { next(err); }
+});
+
+// GET /api/v1/analytics/smart-timing — Smart Timing Learner summary
+router.get('/smart-timing', async (req, res, next) => {
+  try {
+    const { getSmartTimingSummary } = require('../services/smartTimingLearner');
+    const data = await getSmartTimingSummary();
+    res.json({ success: true, data });
+  } catch (err) { next(err); }
+});
+
+// POST /api/v1/analytics/smart-timing/run — trigger manual smart timing analysis
+router.post('/smart-timing/run', async (req, res, next) => {
+  try {
+    const { runTimingAnalysis } = require('../services/smartTimingLearner');
+    const result = await runTimingAnalysis();
+    res.json({ success: true, ...result });
+  } catch (err) { next(err); }
+});
+
+// GET /api/v1/analytics/persona/:siteId — baca persona memory site tertentu
+router.get('/persona/:siteId', async (req, res, next) => {
+  try {
+    const { rows } = await query(
+      `SELECT id, name, persona_memory, persona_description, updated_at FROM sites WHERE id = $1`,
+      [req.params.siteId]
+    );
+    if (!rows.length) return res.status(404).json({ success: false, error: 'Site tidak ditemukan' });
+    res.json({ success: true, data: rows[0] });
+  } catch (err) { next(err); }
+});
+
+// GET /api/v1/analytics/evergreen-updates — riwayat evergreen updates yang sudah dijalankan
+router.get('/evergreen-updates', async (req, res, next) => {
+  try {
+    const { rows } = await query(
+      `SELECT a.id, a.title, a.wordpress_url, a.last_updated_at, a.format,
+              s.name AS site_name,
+              (a.content_versions->>'evergreenUpdate')::jsonb AS update_info
+       FROM articles a
+       LEFT JOIN sites s ON s.id = a.site_id
+       WHERE a.content_versions ? 'evergreenUpdate'
+         AND a.status = 'published'
+       ORDER BY a.last_updated_at DESC
+       LIMIT 30`
+    );
+    res.json({ success: true, data: rows });
+  } catch (err) { next(err); }
+});
+
 module.exports = router;

@@ -22,6 +22,7 @@ const BaseAgent = require('./base');
 const { query } = require('../db');
 const { enqueueJob } = require('../services/jobQueue');
 const { generateSchema } = require('../utils/seoFormatter');
+const linkIntelligence = require('../services/linkIntelligence');
 
 class SeoSpecialistAgent extends BaseAgent {
   constructor() { super('SeoSpecialistAgent'); }
@@ -59,8 +60,22 @@ class SeoSpecialistAgent extends BaseAgent {
     // ── 5. Heading structure check ──────────────────────────────────────────
     const headingCheck = this.checkHeadings(content, keywords.main);
 
-    // ── 6. Internal links ───────────────────────────────────────────────────
-    const internalLinks = await this.findInternalLinks(effectiveSiteId, title, keywords, articleId);
+    // ── 6. Internal links (same-site) + Phase 10: cross-site Link Intelligence
+    const sameLinks   = await this.findInternalLinks(effectiveSiteId, title, keywords, articleId);
+    let crossLinks    = [];
+    try {
+      crossLinks = await linkIntelligence.findCrossSiteLinks({
+        currentArticleId: articleId,
+        currentSiteId:    effectiveSiteId,
+        title,
+        keywords: [keywords.main, ...(keywords.lsi || [])].filter(Boolean),
+        category: category || article.category,
+      });
+    } catch (e) {
+      await this.log('warn', `Cross-site link intelligence gagal: ${e.message}`, { articleId });
+    }
+    // Gabungkan: same-site diutamakan, cross-site sebagai tambahan (total maks 5)
+    const internalLinks = [...sameLinks, ...crossLinks.filter(c => c.isCrossSite)].slice(0, 5);
 
     // ── 7. External links (from brief sources) ──────────────────────────────
     const externalLinks = this.extractExternalLinks(brief);
@@ -93,6 +108,12 @@ class SeoSpecialistAgent extends BaseAgent {
     );
 
     await this.log('info', `SEO selesai: slug="${slug}", keyword="${keywords.main}", density=${densityInfo.percent}%`, { articleId });
+
+    // ── Phase 10 Step 10.3: Catat link yang dibuat ke article_links ─────────
+    const allLinks = internalLinks.filter(l => l.id);
+    if (allLinks.length) {
+      linkIntelligence.recordLinks(articleId, allLinks).catch(() => {});
+    }
 
     // ── Enqueue PUBLISH ─────────────────────────────────────────────────────
     await enqueueJob('PUBLISH', articleId, {
