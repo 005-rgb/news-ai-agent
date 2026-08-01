@@ -1,7 +1,7 @@
-import React, { useEffect, useState, useCallback } from 'react';
+import React, { useEffect, useState, useCallback, useRef } from 'react';
 import { settings as settingsApi, auth, apiKeys, quality as qualityApi, sites as sitesApi } from '../lib/api';
 
-const TABS = ['Operasional', 'Prompt Templates', 'Quality Engine', 'Keamanan', 'Sistem', 'Export'];
+const TABS = ['Operasional', 'Prompt Templates', 'Quality Engine', 'Keamanan', 'Sistem', 'Backup & Restore'];
 
 const TIMEZONES = [
   'Asia/Jakarta', 'Asia/Makassar', 'Asia/Jayapura',
@@ -107,7 +107,11 @@ export default function Settings({ onLogout }) {
   const [config, setConfig] = useState(null);
   const [pwForm, setPwForm] = useState({ current_password: '', new_password: '', confirm: '' });
   const [pwMsg, setPwMsg] = useState(null);
-  const [exporting, setExporting] = useState(false);
+  const [exporting, setExporting]       = useState(false);
+  const [importing, setImporting]       = useState(false);
+  const [importMsg, setImportMsg]       = useState(null);
+  const [includeArticles, setIncludeArticles] = useState(false);
+  const fileInputRef = useRef(null);
   const [templates, setTemplates] = useState([]);
   const [tplLoading, setTplLoading] = useState(false);
   const [selectedTpl, setSelectedTpl] = useState(null);
@@ -262,16 +266,42 @@ export default function Settings({ onLogout }) {
 
   const handleExport = async () => {
     setExporting(true);
-    const res = await settingsApi.export().catch(() => null);
+    const res = await settingsApi.export({
+      include_articles: includeArticles ? 'true' : 'false',
+      articles_limit: 500,
+    }).catch(() => null);
     const data = res?.data || res;
     if (data) {
       const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
-      a.href = url; a.download = `newsai-config-${Date.now()}.json`; a.click();
+      a.href = url;
+      a.download = `newsai-backup-${new Date().toISOString().slice(0,10)}.json`;
+      a.click();
       URL.revokeObjectURL(url);
     }
     setExporting(false);
+  };
+
+  const handleImport = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setImporting(true);
+    setImportMsg(null);
+    try {
+      const text = await file.text();
+      const json = JSON.parse(text);
+      // Support kedua format: { data: {...} } atau langsung object
+      const payload = json.data || json;
+      const res = await settingsApi.import(payload);
+      const result = res?.data || res;
+      setImportMsg({ ok: true, text: result.message || 'Import berhasil.' });
+    } catch (err) {
+      setImportMsg({ ok: false, text: err?.message || 'Gagal import. Pastikan file JSON valid.' });
+    }
+    setImporting(false);
+    // Reset file input
+    if (fileInputRef.current) fileInputRef.current.value = '';
   };
 
   // ── Template actions ───────────────────────────────────────────────────────
@@ -1019,9 +1049,9 @@ export default function Settings({ onLogout }) {
                 ['Phase 6 — Scheduler & Full Automation', true],
                 ['Phase 7 — Dashboard Full (semua menu real)', true],
                 ['Phase 8 — Quality & Humanizer Engine', true],
+                ['Phase 9  — Rapat Redaksi Engine', true],
                 ['Phase 10 — Innovation Layer', true],
-                ['Phase 10 — Innovation Layer', false],
-                ['Phase 11 — Hardening & Production Ready', false],
+                ['Phase 11 — Hardening & Production Ready', true],
               ].map(([label, done]) => (
                 <div key={label} className={`flex items-center gap-2 ${done ? 'text-blue-900 font-medium' : 'text-blue-400'}`}>
                   <span>{done ? '✅' : '⬜'}</span>
@@ -1033,28 +1063,100 @@ export default function Settings({ onLogout }) {
         </div>
       )}
 
-      {/* ── Tab: Export ────────────────────────────────────────────────────────── */}
-      {activeTab === 'Export' && (
+      {/* ── Tab: Backup & Restore ─────────────────────────────────────────────── */}
+      {activeTab === 'Backup & Restore' && (
         <div className="space-y-6">
+
+          {/* Export */}
           <div className="bg-white rounded-xl border border-gray-200 p-6">
-            <h3 className="font-semibold text-gray-800 mb-2">Export Konfigurasi</h3>
+            <h3 className="font-semibold text-gray-800 mb-1">⬇ Export Backup</h3>
             <p className="text-sm text-gray-500 mb-4">
-              Export semua config site, sumber, dan prompt templates ke JSON.
+              Export semua konfigurasi sistem ke file JSON.
               <strong> API key dan WP credentials tidak disertakan</strong> (demi keamanan).
             </p>
+            <div className="flex items-center gap-3 mb-4">
+              <label className="flex items-center gap-2 text-sm text-gray-700 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={includeArticles}
+                  onChange={e => setIncludeArticles(e.target.checked)}
+                  className="rounded"
+                />
+                Sertakan metadata artikel (judul, skor, status — max 500 artikel)
+              </label>
+            </div>
             <button
-              onClick={handleExport} disabled={exporting}
-              className="bg-gray-700 hover:bg-gray-800 disabled:opacity-50 text-white text-sm font-medium px-4 py-2 rounded-lg"
+              onClick={handleExport}
+              disabled={exporting}
+              className="bg-gray-700 hover:bg-gray-800 disabled:opacity-50 text-white text-sm font-medium px-5 py-2 rounded-lg"
             >
-              {exporting ? 'Exporting...' : '⬇ Export JSON'}
+              {exporting ? '⏳ Mengexport...' : '⬇ Export JSON'}
             </button>
+            <div className="mt-4 bg-gray-50 rounded-lg border border-gray-200 p-4">
+              <div className="text-xs font-semibold text-gray-600 mb-1">Mencakup:</div>
+              <ul className="text-xs text-gray-500 space-y-0.5">
+                <li>✓ Sites (tanpa WP credentials)</li>
+                <li>✓ Sources (68+ sumber berita)</li>
+                <li>✓ Prompt templates</li>
+                <li>✓ System settings (humanizer, thresholds, dll)</li>
+                {includeArticles && <li>✓ Metadata artikel (title, status, skor — tanpa content)</li>}
+                <li className="text-red-400">✗ API keys (tidak pernah diekspor)</li>
+                <li className="text-red-400">✗ WordPress credentials (tidak pernah diekspor)</li>
+              </ul>
+            </div>
           </div>
+
+          {/* Import */}
+          <div className="bg-white rounded-xl border border-gray-200 p-6">
+            <h3 className="font-semibold text-gray-800 mb-1">⬆ Import / Restore</h3>
+            <p className="text-sm text-gray-500 mb-4">
+              Restore konfigurasi dari file backup JSON. Data existing akan di-update (upsert), tidak dihapus.
+              API keys dan WP credentials harus dikonfigurasi ulang secara manual.
+            </p>
+
+            {importMsg && (
+              <div className={`mb-4 text-sm rounded-lg px-4 py-3 ${importMsg.ok ? 'bg-green-50 text-green-700 border border-green-200' : 'bg-red-50 text-red-700 border border-red-200'}`}>
+                {importMsg.ok ? '✓ ' : '✗ '}{importMsg.text}
+              </div>
+            )}
+
+            <div className="flex items-center gap-3">
+              <label className="flex items-center gap-2 cursor-pointer">
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept=".json,application/json"
+                  onChange={handleImport}
+                  disabled={importing}
+                  className="hidden"
+                />
+                <span
+                  onClick={() => fileInputRef.current?.click()}
+                  className={`bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium px-5 py-2 rounded-lg cursor-pointer select-none ${importing ? 'opacity-50 pointer-events-none' : ''}`}
+                >
+                  {importing ? '⏳ Mengimport...' : '⬆ Pilih File Backup'}
+                </span>
+              </label>
+              <span className="text-xs text-gray-400">Format: newsai-backup-*.json</span>
+            </div>
+
+            <div className="mt-4 bg-amber-50 rounded-lg border border-amber-200 p-4">
+              <div className="text-xs font-semibold text-amber-800 mb-1">⚠ Perhatian:</div>
+              <ul className="text-xs text-amber-700 space-y-0.5">
+                <li>• Import menggunakan upsert — data existing diupdate, tidak dihapus</li>
+                <li>• Sites yang diimport tidak memiliki WP credentials — perlu diisi ulang</li>
+                <li>• API keys tidak termasuk dalam backup — tambahkan ulang di halaman API Keys</li>
+                <li>• Restart server disarankan setelah import settings</li>
+              </ul>
+            </div>
+          </div>
+
           <div className="bg-amber-50 rounded-xl border border-amber-200 p-6">
             <h3 className="font-semibold text-amber-800 mb-2">Informasi Backup</h3>
             <ul className="text-sm text-amber-700 space-y-1">
-              <li>• Export mencakup: sites, sources, prompt templates, article count</li>
-              <li>• Tidak mencakup: API keys (terenkripsi di DB), WP credentials, artikel content</li>
-              <li>• Gunakan export ini untuk backup konfigurasi atau pindah server</li>
+              <li>• Jadwalkan backup rutin — minimal seminggu sekali</li>
+              <li>• Simpan file backup di tempat aman di luar server</li>
+              <li>• Untuk pindah server: export → setup server baru → import → tambah API keys & WP credentials</li>
             </ul>
           </div>
         </div>

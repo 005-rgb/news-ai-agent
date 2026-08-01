@@ -15,7 +15,7 @@ const path        = require('path');
 const { pool, checkConnection, migrate } = require('./db');
 const logger      = require('./utils/logger');
 const { requireAuth } = require('./middleware/auth');
-const { globalLimiter, authLimiter } = require('./middleware/rateLimiter');
+const { globalLimiter, authLimiter, writeLimiter, pipelineLimiter } = require('./middleware/rateLimiter');
 const { errorHandler, notFoundHandler } = require('./middleware/errorHandler');
 
 // Routes
@@ -31,6 +31,7 @@ const analyticsRoutes   = require('./routes/analytics');
 const settingsRoutes    = require('./routes/settings');
 const schedulerRoutes   = require('./routes/scheduler');
 const qualityRoutes     = require('./routes/quality');
+const alertsRoutes      = require('./routes/alerts');
 
 const app = express();
 
@@ -86,17 +87,39 @@ app.use(session(sessionConfig));
 app.use('/api/v1', globalLimiter);
 app.use('/api/v1', requireAuth);
 
-// ── Health check ──────────────────────────────────────────────────────────────
+// ── Health check (Phase 11 — enhanced) ───────────────────────────────────────
 app.get('/api/v1/health', async (req, res) => {
   try {
     await checkConnection();
+
+    // Gather health metrics in parallel
+    const [queueRes, lastJobRes, alertRes] = await Promise.all([
+      pool.query(`SELECT count(*) AS pending, count(*) FILTER (WHERE status='processing') AS processing FROM job_queue WHERE status IN ('pending','processing')`),
+      pool.query(`SELECT finished_at FROM job_queue WHERE status='done' ORDER BY finished_at DESC LIMIT 1`),
+      pool.query(`SELECT count(*) AS active FROM system_alerts WHERE is_resolved = false`).catch(() => ({ rows: [{ active: 0 }] })),
+    ]);
+
+    const mem = process.memoryUsage();
+
     res.json({
       success: true,
       data: {
         status: 'ok',
         db: 'connected',
         version: '1.0.0',
-        phase: 'Phase 10 — Innovation Layer',
+        phase: 'Phase 11 — Production Ready',
+        queue: {
+          pending:    parseInt(queueRes.rows[0]?.pending    || 0),
+          processing: parseInt(queueRes.rows[0]?.processing || 0),
+        },
+        lastJobAt:    lastJobRes.rows[0]?.finished_at || null,
+        activeAlerts: parseInt(alertRes.rows[0]?.active || 0),
+        memory: {
+          heapUsedMB:  Math.round(mem.heapUsed  / 1024 / 1024),
+          heapTotalMB: Math.round(mem.heapTotal / 1024 / 1024),
+          rssMB:       Math.round(mem.rss       / 1024 / 1024),
+        },
+        uptime: Math.round(process.uptime()),
         timestamp: new Date().toISOString(),
       },
     });
@@ -121,6 +144,7 @@ app.use('/api/v1/analytics',  analyticsRoutes);
 app.use('/api/v1/settings',   settingsRoutes);
 app.use('/api/v1/scheduler',  schedulerRoutes);
 app.use('/api/v1/quality',    qualityRoutes);
+app.use('/api/v1/alerts',     alertsRoutes);
 
 // ── Serve React client ────────────────────────────────────────────────────────
 const clientDist = path.join(__dirname, '..', 'client', 'dist');
@@ -242,7 +266,25 @@ function startCronJobs() {
     }
   }, { timezone: 'UTC' });
 
-  console.log('[Cron] Jobs scheduled: daily-reset, rolling-reset(5min), monthly-reset, stats-snapshot, log-cleanup');
+  // ── Phase 11.2: Alert scan setiap 5 menit ────────────────────────────────
+  cron.schedule('*/5 * * * *', async () => {
+    try {
+      const alertService = require('./services/alertService');
+      await alertService.runAlertScan();
+    } catch (err) {
+      console.error('[Cron] Alert scan error:', err.message);
+    }
+  }, { timezone: 'UTC' });
+
+  // ── Phase 11.5: Cache cleanup setiap jam ──────────────────────────────────
+  cron.schedule('0 * * * *', () => {
+    try {
+      const cache = require('./utils/cache');
+      cache.clear();
+    } catch (_) {}
+  }, { timezone: 'UTC' });
+
+  console.log('[Cron] Jobs scheduled: daily-reset, rolling-reset(5min), monthly-reset, stats-snapshot, log-cleanup, alert-scan(5min), cache-clear(1h)');
 }
 
 // ── Boot ──────────────────────────────────────────────────────────────────────
@@ -264,11 +306,33 @@ async function start() {
     await scheduler.start();
     await logger.info('Server', 'Phase 10 Innovation Layer started');
 
-    app.listen(config.port, '0.0.0.0', () => {
+    const server = app.listen(config.port, '0.0.0.0', () => {
       console.log(`\n[Server] News AI Agent running on port ${config.port}`);
       console.log(`[Server] Health: http://localhost:${config.port}/api/v1/health`);
-      console.log(`[Server] Phase 10 — Innovation Layer ✓\n`);
+      console.log(`[Server] Phase 11 — Production Ready ✓\n`);
     });
+
+    // ── Phase 11: Graceful shutdown ──────────────────────────────────────────
+    const shutdown = async (signal) => {
+      console.log(`\n[Server] ${signal} received — shutting down gracefully...`);
+      server.close(async () => {
+        try {
+          const { stopWorker } = require('./services/jobQueue');
+          stopWorker();
+          await pool.end();
+          console.log('[Server] Database pool closed. Bye!');
+        } catch (e) {
+          console.error('[Server] Error during shutdown:', e.message);
+        }
+        process.exit(0);
+      });
+      // Force-exit setelah 10 detik jika masih belum selesai
+      setTimeout(() => { console.error('[Server] Forced shutdown after timeout.'); process.exit(1); }, 10000);
+    };
+
+    process.on('SIGTERM', () => shutdown('SIGTERM'));
+    process.on('SIGINT',  () => shutdown('SIGINT'));
+
   } catch (err) {
     console.error('[Server] Fatal error during startup:', err.message);
     console.error(err.stack);

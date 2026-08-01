@@ -2,11 +2,18 @@
 
 const express = require('express');
 const { query } = require('../db');
+const { cacheMiddleware } = require('../utils/cache');
 
 const router = express.Router();
 
+// TTL constants
+const TTL_30S  = 30  * 1000;
+const TTL_1MIN = 60  * 1000;
+const TTL_5MIN = 5   * 60 * 1000;
+const TTL_15MIN= 15  * 60 * 1000;
+
 // GET /api/v1/analytics/overview
-router.get('/overview', async (req, res, next) => {
+router.get('/overview', cacheMiddleware(TTL_30S), async (req, res, next) => {
   try {
     const [articlesRes, queueRes, keysRes, alertsRes] = await Promise.all([
       query(`SELECT count(*) FROM articles WHERE DATE(published_at) = CURRENT_DATE`),
@@ -28,7 +35,7 @@ router.get('/overview', async (req, res, next) => {
 });
 
 // GET /api/v1/analytics/production — articles per day for 7 days
-router.get('/production', async (req, res, next) => {
+router.get('/production', cacheMiddleware(TTL_1MIN, req => `route:production:${req.query.days || 7}:${req.query.site_id || ''}`), async (req, res, next) => {
   try {
     const { site_id, days = 7 } = req.query;
     const params = [parseInt(days)];
@@ -48,7 +55,7 @@ router.get('/production', async (req, res, next) => {
 });
 
 // GET /api/v1/analytics/pipeline — funnel counts
-router.get('/pipeline', async (req, res, next) => {
+router.get('/pipeline', cacheMiddleware(TTL_30S), async (req, res, next) => {
   try {
     const { rows } = await query(
       `SELECT status, count(*) AS count
@@ -63,7 +70,7 @@ router.get('/pipeline', async (req, res, next) => {
 });
 
 // GET /api/v1/analytics/providers — provider performance
-router.get('/providers', async (req, res, next) => {
+router.get('/providers', cacheMiddleware(TTL_5MIN), async (req, res, next) => {
   try {
     const { rows } = await query(
       `SELECT provider_used AS provider,
@@ -117,7 +124,7 @@ router.get('/activity', async (req, res, next) => {
 });
 
 // GET /api/v1/analytics/eeat-weekly — avg E-E-A-T and quality score per week (last 8 weeks)
-router.get('/eeat-weekly', async (req, res, next) => {
+router.get('/eeat-weekly', cacheMiddleware(TTL_5MIN), async (req, res, next) => {
   try {
     const { rows } = await query(
       `SELECT
@@ -136,7 +143,7 @@ router.get('/eeat-weekly', async (req, res, next) => {
 });
 
 // GET /api/v1/analytics/prompts — prompt evolution table
-router.get('/prompts', async (req, res, next) => {
+router.get('/prompts', cacheMiddleware(TTL_5MIN), async (req, res, next) => {
   try {
     const { rows } = await query(
       `SELECT
@@ -157,7 +164,7 @@ router.get('/prompts', async (req, res, next) => {
 });
 
 // GET /api/v1/analytics/evergreen — evergreen article candidates
-router.get('/evergreen', async (req, res, next) => {
+router.get('/evergreen', cacheMiddleware(TTL_15MIN), async (req, res, next) => {
   try {
     const { rows } = await query(
       `SELECT a.id, a.title, a.format, a.category, a.quality_score, a.eeat_score,
@@ -219,7 +226,7 @@ router.get('/key-usage', async (req, res, next) => {
 });
 
 // GET /api/v1/analytics/error-rate — failed jobs per pipeline type (last 7 days)
-router.get('/error-rate', async (req, res, next) => {
+router.get('/error-rate', cacheMiddleware(TTL_5MIN), async (req, res, next) => {
   try {
     const { rows } = await query(
       `SELECT

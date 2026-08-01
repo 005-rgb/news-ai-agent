@@ -1,0 +1,123 @@
+Set up the imported project
+The user just imported this project from a GitHub repository. It could be anything — an app to run on Replit, a library, a fork to study, code to reuse — so the first thing to do is ask what they want; everything after depends on the answer.
+
+
+7 actions
+Let me check the current environment and what's needed to get this running.
+
+
+3 actions
+Most secrets are already set. Let me install dependencies and try to start the app.
+
+
+5 actions
+Build succeeded. Let me restart the workflow and verify the server starts cleanly.
+
+
+9 actions
+The app is running perfectly — login page is up, database migrated with all 12 tables, 68 sources seeded. The 401 errors are expected (unauthenticated API calls on the login page).
+
+
+3 actions
+Marked task #1 complete
+
+Worked for 1 minute
+buld fase 11 dengan presisi tinggi. cek prd
+
+14 minutes ago
+
+3 actions
+Biar saya baca PRD Phase 11 lengkap dulu dan survei kondisi kodebase yang sudah ada.
+
+
+7 actions
+Biar saya baca file kunci dulu sebelum mulai build.
+
+
+4 actions
+Baca file kunci yang masih dibutuhkan secara paralel.
+
+
+4 actions
+Baca file yang paling relevan untuk menentukan gap secara tepat.
+
+
+4 actions
+Baca sisa file yang masih perlu saya lihat sebelum mulai build.
+
+
+4 actions
+Perlu lihat Analytics.jsx dan App.jsx sebelum mulai build.
+
+
+7 actions
+Sekarang saya punya gambaran lengkap. Ini mapping Phase 11:
+
+Sudah ada: logger, log rotation, System Logs tab UI, rate limiter, export, DB indexes, connection pool
+Perlu dibangun: sistem alert penuh (system_alerts table + engine + routes), import backup, response caching, graceful shutdown, health check enhanced, no-key banner di Overview, resolve alert dari dashboard
+
+Mulai build sekarang — semua paralel.
+
+
+4 actions
+Lanjut build — tambah tabel system_alerts ke migration, update routes, dan frontend secara paralel.
+
+
+6 actions
+Lanjut — tambah alert cron + graceful shutdown ke index.js, import route ke settings, update frontend secara paralel.
+
+
+2 actions
+Lanjut build — graceful shutdown, import settings, frontend update — semua paralel.
+
+
+3 actions
+Perlu fix import route (tidak ada unique constraint di sources/sites.url) dan lanjut frontend secara paralel.
+
+
+2 actions
+Lanjut build — update frontend API, Overview, Settings export tab, dan rateLimiter secara paralel.
+
+
+2 actions
+Lanjut build frontend — Overview, Settings export tab, dan analytics caching secara paralel.
+
+
+3 actions
+Baca bagian Settings.jsx yang relevan untuk export/import state.
+
+
+3 actions
+Lanjut update Settings.jsx export tab dengan import, dan tambah caching ke analytics — paralel.
+
+
+3 actions
+Lanjut — tambah import handler ke Settings.jsx, caching ke analytics routes, dan per-operation rate limiter secara paralel.
+
+
+3 actions
+Lanjut — update Export tab UI di Settings.jsx, tambah caching ke analytics, dan update Build Progress secara paralel.
+
+
+4 actions
+Lanjut — tambah caching ke lebih banyak endpoints, update rateLimiter, lalu build + restart untuk verifikasi.
+
+
+5 actions
+Lanjut — apply write/import limiters ke routes, build, dan restart workflow secara paralel.
+
+
+3 actions
+Build dan restart workflow untuk verifikasi.
+
+
+6 actions
+Server berjalan. Mari verifikasi health endpoint dan screenshot untuk konfirmasi.
+
+
+6 actions
+Semua berjalan. Update footer login page dan server startup message, lalu update memory.
+
+
+8 actions
+Build final dan restart workflow

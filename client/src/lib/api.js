@@ -137,14 +137,24 @@ export const quality = {
 
 // ── Settings ──────────────────────────────────────────────────────────────────
 export const settings = {
-  get:                 ()          => api.get('/settings'),
-  systemConfig:        ()          => api.get('/settings/system-config'),
-  updateSystemConfig:  (data)      => api.patch('/settings/system-config', data),
-  imageChain:          ()          => api.get('/settings/image-chain'),
-  saveImageChain:      (chain)     => api.put('/settings/image-chain', { chain }),
-  export:              ()          => api.get('/settings/export'),
-  changePassword:      (data)      => api.post('/settings/change-password', data),
-  promptTemplates:     ()          => api.get('/settings/prompt-templates'),
-  createTemplate:      (data)      => api.post('/settings/prompt-templates', data),
-  updateTemplate:      (id,data)   => api.patch(`/settings/prompt-templates/${id}`, data),
+  get:                 ()              => api.get('/settings'),
+  systemConfig:        ()              => api.get('/settings/system-config'),
+  updateSystemConfig:  (data)          => api.patch('/settings/system-config', data),
+  imageChain:          ()              => api.get('/settings/image-chain'),
+  saveImageChain:      (chain)         => api.put('/settings/image-chain', { chain }),
+  export:              (params)        => api.get('/settings/export', { params }),
+  import:              (data)          => api.post('/settings/import', data),
+  changePassword:      (data)          => api.post('/settings/change-password', data),
+  promptTemplates:     ()              => api.get('/settings/prompt-templates'),
+  createTemplate:      (data)          => api.post('/settings/prompt-templates', data),
+  updateTemplate:      (id,data)       => api.patch(`/settings/prompt-templates/${id}`, data),
+};
+
+// ── Alerts (Phase 11.2) ───────────────────────────────────────────────────────
+export const alerts = {
+  list:        (params)  => api.get('/alerts', { params }),
+  count:       ()        => api.get('/alerts/count'),
+  resolve:     (id)      => api.patch(`/alerts/${id}/resolve`),
+  resolveAll:  ()        => api.post('/alerts/resolve-all'),
+  scan:        ()        => api.post('/alerts/scan'),
 };

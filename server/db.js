@@ -263,6 +263,21 @@ BEGIN
   END IF;
 END $$;
 
+-- ── Phase 11: system_alerts ───────────────────────────────────────────────────
+CREATE TABLE IF NOT EXISTS system_alerts (
+  id          UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  type        VARCHAR(100) NOT NULL,
+  severity    VARCHAR(50)  DEFAULT 'warning',
+  title       TEXT         NOT NULL,
+  message     TEXT,
+  metadata    JSONB        DEFAULT '{}',
+  is_resolved BOOLEAN      DEFAULT false,
+  resolved_at TIMESTAMPTZ,
+  created_at  TIMESTAMPTZ  DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_system_alerts_active ON system_alerts(is_resolved, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_system_alerts_type   ON system_alerts(type, is_resolved);
+
 -- ── 13. system_settings (Phase 7 — editable runtime config) ─────────────────
 CREATE TABLE IF NOT EXISTS system_settings (
   key        TEXT PRIMARY KEY,

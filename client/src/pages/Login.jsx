@@ -75,7 +75,7 @@ export default function Login({ onLogin }) {
         </form>
 
         <p className="text-center text-gray-500 text-xs mt-4">
-          Phase 10 — Innovation Layer ✓
+          Phase 11 — Production Ready ✓
         </p>
       </div>
     </div>

@@ -4,6 +4,7 @@ const express = require('express');
 const bcrypt = require('bcryptjs');
 const { query } = require('../db');
 const config = require('../config');
+const { importLimiter } = require('../middleware/rateLimiter');
 
 const router = express.Router();
 
@@ -53,32 +54,172 @@ router.post('/change-password', async (req, res, next) => {
   } catch (err) { next(err); }
 });
 
-// GET /api/v1/settings/export — config export (no plaintext secrets)
-router.get('/export', async (req, res, next) => {
+// GET /api/v1/settings/export — full config export (no plaintext secrets)
+router.get('/export', importLimiter, async (req, res, next) => {
   try {
-    const [sitesRes, sourcesRes, promptsRes] = await Promise.all([
+    const { include_articles = 'false', articles_limit = 500 } = req.query;
+    const artLimit = Math.min(parseInt(articles_limit) || 500, 2000);
+
+    const [sitesRes, sourcesRes, promptsRes, sysConfigRes] = await Promise.all([
       query(`SELECT id, name, url, wordpress_api_url, wordpress_username, niche, categories, status, config, persona_description FROM sites`),
-      query(`SELECT id, name, url, rss_url, type, categories, credibility_score, fetch_interval_minutes FROM sources`),
-      query(`SELECT id, name, agent_type, category, format_key, prompt_template, is_champion, is_active FROM prompt_versions`),
+      query(`SELECT id, name, url, rss_url, type, categories, credibility_score, fetch_interval_minutes, is_active FROM sources`),
+      query(`SELECT id, name, agent_type, category, format_key, prompt_template, is_champion, is_active, status FROM prompt_versions`),
+      query(`SELECT key, value FROM system_settings ORDER BY key`),
     ]);
 
-    const articlesCount = await query(`SELECT count(*) FROM articles`);
+    const articlesCountRes = await query(`SELECT count(*) FROM articles`);
+
+    const exportData = {
+      version: '11.0',
+      exported_at: new Date().toISOString(),
+      sites: sitesRes.rows,
+      sources: sourcesRes.rows,
+      prompt_versions: promptsRes.rows,
+      system_settings: Object.fromEntries(sysConfigRes.rows.map(r => [r.key, r.value])),
+      articles_count: parseInt(articlesCountRes.rows[0].count),
+      note: 'API keys, WordPress credentials, dan artikel content tidak disertakan demi keamanan.',
+    };
+
+    // Opsional: sertakan metadata artikel (tanpa content) untuk keperluan referensi
+    if (include_articles === 'true') {
+      const { rows: articles } = await query(
+        `SELECT id, title, status, format, category, quality_score, eeat_score,
+                published_at, wordpress_url, created_at,
+                (SELECT name FROM sites WHERE id = articles.site_id) AS site_name
+         FROM articles
+         ORDER BY created_at DESC LIMIT $1`,
+        [artLimit]
+      );
+      exportData.articles_metadata = articles;
+      exportData.articles_count = articles.length;
+    }
+
+    res.json({ success: true, data: exportData });
+  } catch (err) { next(err); }
+});
+
+// POST /api/v1/settings/import — import konfigurasi dari JSON export
+router.post('/import', importLimiter, async (req, res, next) => {
+  try {
+    const { sites = [], sources = [], prompt_versions = [], system_settings = {} } = req.body;
+
+    if (!Array.isArray(sites) && !Array.isArray(sources) && !Array.isArray(prompt_versions)) {
+      return res.status(400).json({
+        success: false,
+        error: { code: 'INVALID_PAYLOAD', message: 'Payload tidak valid. Gunakan file export dari /settings/export.' },
+      });
+    }
+
+    const results = { sites: 0, sources: 0, prompt_versions: 0, settings: 0, errors: [] };
+    const { v4: uuidv4 } = require('uuid');
+
+    // Import sites (upsert by URL — credentials TIDAK di-import)
+    for (const site of sites) {
+      try {
+        await query(
+          `INSERT INTO sites (id, name, url, niche, categories, status, config, persona_description)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
+           ON CONFLICT (id) DO UPDATE SET
+             name = EXCLUDED.name,
+             niche = EXCLUDED.niche,
+             categories = EXCLUDED.categories,
+             config = EXCLUDED.config,
+             persona_description = EXCLUDED.persona_description`,
+          [
+            site.id || uuidv4(),
+            site.name,
+            site.url,
+            site.niche || null,
+            site.categories || '{}',
+            site.status || 'active',
+            JSON.stringify(site.config || {}),
+            site.persona_description || null,
+          ]
+        );
+        results.sites++;
+      } catch (e) { results.errors.push(`Site "${site.name}": ${e.message}`); }
+    }
+
+    // Import sources (upsert by URL)
+    for (const src of sources) {
+      try {
+        await query(
+          `INSERT INTO sources (id, name, url, rss_url, type, categories, credibility_score, fetch_interval_minutes, is_active)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
+           ON CONFLICT (id) DO UPDATE SET
+             name = EXCLUDED.name,
+             rss_url = EXCLUDED.rss_url,
+             type = EXCLUDED.type,
+             categories = EXCLUDED.categories,
+             credibility_score = EXCLUDED.credibility_score,
+             is_active = EXCLUDED.is_active`,
+          [
+            src.id || uuidv4(),
+            src.name,
+            src.url,
+            src.rss_url || null,
+            src.type || 'rss',
+            src.categories || '{}',
+            src.credibility_score || 5.0,
+            src.fetch_interval_minutes || 30,
+            src.is_active !== false,
+          ]
+        );
+        results.sources++;
+      } catch (e) { results.errors.push(`Source "${src.name}": ${e.message}`); }
+    }
+
+    // Import prompt versions (upsert by id)
+    for (const tpl of prompt_versions) {
+      try {
+        await query(
+          `INSERT INTO prompt_versions (id, name, agent_type, category, format_key, prompt_template, is_champion, is_active, status)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
+           ON CONFLICT (id) DO UPDATE SET
+             name = EXCLUDED.name,
+             prompt_template = EXCLUDED.prompt_template,
+             is_active = EXCLUDED.is_active`,
+          [
+            tpl.id || uuidv4(),
+            tpl.name,
+            tpl.agent_type || 'writer',
+            tpl.category || null,
+            tpl.format_key || null,
+            tpl.prompt_template || '',
+            tpl.is_champion || false,
+            tpl.is_active !== false,
+            tpl.status || 'active',
+          ]
+        );
+        results.prompt_versions++;
+      } catch (e) { results.errors.push(`Template "${tpl.name}": ${e.message}`); }
+    }
+
+    // Import system_settings (hanya key yang diperbolehkan)
+    const ALLOWED_SETTING_KEYS = [
+      'humanizer_level', 'quality_score_threshold', 'eeat_score_threshold',
+      'key_warning_threshold', 'human_review_enabled', 'timezone',
+      'image_fallback_chain',
+    ];
+    for (const key of ALLOWED_SETTING_KEYS) {
+      if (system_settings[key] !== undefined) {
+        try {
+          await query(
+            `INSERT INTO system_settings (key, value, updated_at) VALUES ($1, $2::jsonb, NOW())
+             ON CONFLICT (key) DO UPDATE SET value = $2::jsonb, updated_at = NOW()`,
+            [key, JSON.stringify(system_settings[key])]
+          );
+          results.settings++;
+        } catch (e) { results.errors.push(`Setting "${key}": ${e.message}`); }
+      }
+    }
 
     res.json({
       success: true,
       data: {
-        exported_at: new Date().toISOString(),
-        sites: sitesRes.rows,
-        sources: sourcesRes.rows,
-        prompt_versions: promptsRes.rows,
-        articles_count: parseInt(articlesCount.rows[0].count),
-        settings: {
-          timezone: config.timezone,
-          qualityScoreThreshold: config.qualityScoreThreshold,
-          eeatScoreThreshold: config.eeatScoreThreshold,
-          humanizerLevel: config.humanizerLevel,
-        },
-        note: 'API keys and WordPress credentials not exported for security reasons.',
+        imported: results,
+        message: `Import selesai: ${results.sites} sites, ${results.sources} sources, ${results.prompt_versions} templates, ${results.settings} settings.`,
+        ...(results.errors.length > 0 ? { warnings: results.errors } : {}),
       },
     });
   } catch (err) { next(err); }
