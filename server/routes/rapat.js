@@ -1,11 +1,25 @@
 'use strict';
 
+/**
+ * Rapat Redaksi Routes — Phase 7 (CRUD) + Phase 9 (full engine)
+ *
+ * GET  /api/v1/rapat                  — list notulen archive
+ * GET  /api/v1/rapat/latest           — notulen terbaru
+ * GET  /api/v1/rapat/trends/predictions — trend predictions dari DB
+ * GET  /api/v1/rapat/trends/refresh   — manual trigger trend fetch (POST)
+ * GET  /api/v1/rapat/performance      — performance analysis (Phase 9 Step 9.4)
+ * GET  /api/v1/rapat/competitor-gaps  — semua competitor gaps dari DB
+ * POST /api/v1/rapat/competitor       — tambah competitor URL untuk site
+ * POST /api/v1/rapat/trigger          — manual trigger rapat redaksi penuh
+ * GET  /api/v1/rapat/:id              — detail satu rapat session
+ */
+
 const express = require('express');
 const { query } = require('../db');
 
 const router = express.Router();
 
-// GET /api/v1/rapat — latest notes + archive
+// ── GET /api/v1/rapat — list notulen archive ──────────────────────────────────
 router.get('/', async (req, res, next) => {
   try {
     const { rows } = await query(
@@ -16,218 +30,138 @@ router.get('/', async (req, res, next) => {
   } catch (err) { next(err); }
 });
 
-// GET /api/v1/rapat/latest
+// ── GET /api/v1/rapat/latest ──────────────────────────────────────────────────
 router.get('/latest', async (req, res, next) => {
   try {
     const { rows } = await query(
       `SELECT * FROM rapat_notes ORDER BY session_date DESC LIMIT 1`
     );
-    if (!rows.length) return res.json({ success: true, data: null });
-    res.json({ success: true, data: rows[0] });
+    res.json({ success: true, data: rows[0] || null });
   } catch (err) { next(err); }
 });
 
-// GET /api/v1/rapat/:id
-router.get('/:id', async (req, res, next) => {
-  try {
-    const { rows } = await query('SELECT * FROM rapat_notes WHERE id = $1', [req.params.id]);
-    if (!rows.length) return res.status(404).json({ success: false, error: { code: 'NOT_FOUND', message: 'Rapat session not found' } });
-    res.json({ success: true, data: rows[0] });
-  } catch (err) { next(err); }
-});
-
-// GET /api/v1/rapat/trends/predictions
+// ── GET /api/v1/rapat/trends/predictions ─────────────────────────────────────
 router.get('/trends/predictions', async (req, res, next) => {
   try {
+    const { category, limit = 20 } = req.query;
+    let where = '';
+    const params = [];
+    if (category) {
+      where = 'WHERE category = $1';
+      params.push(category);
+    }
     const { rows } = await query(
-      `SELECT * FROM trend_predictions ORDER BY confidence_score DESC, created_at DESC LIMIT 20`
+      `SELECT id, topic, category, confidence_score, predicted_peak_date,
+              source_signals, status, created_at
+       FROM trend_predictions
+       ${where}
+       ORDER BY confidence_score DESC NULLS LAST, created_at DESC
+       LIMIT $${params.length + 1}`,
+      [...params, Math.min(50, parseInt(limit) || 20)]
     );
     res.json({ success: true, data: rows });
   } catch (err) { next(err); }
 });
 
-// POST /api/v1/rapat/trigger — manually trigger rapat redaksi
-// Aggregates real DB data to generate a notulen and saves it to rapat_notes
+// ── POST /api/v1/rapat/trends/refresh — manual trend fetch ───────────────────
+router.post('/trends/refresh', async (req, res, next) => {
+  try {
+    const { refreshTrends } = require('../services/trendFetcher');
+    const result = await refreshTrends();
+    res.json({
+      success: true,
+      data: {
+        message: `Trend refresh selesai: ${result.fetched} sinyal diambil, ${result.stored} disimpan`,
+        fetched: result.fetched,
+        stored:  result.stored,
+        error:   result.error || null,
+      },
+    });
+  } catch (err) { next(err); }
+});
+
+// ── GET /api/v1/rapat/performance — Phase 9 Step 9.4 performance analysis ────
+router.get('/performance', async (req, res, next) => {
+  try {
+    const { days = 7 } = req.query;
+    const AnalystAgent = require('../agents/analyst');
+    const analyst      = new AnalystAgent();
+    const report       = await analyst.analyzePerformance({ days: parseInt(days) || 7 });
+    res.json({ success: true, data: report });
+  } catch (err) { next(err); }
+});
+
+// ── GET /api/v1/rapat/competitor-gaps — all competitor gaps ──────────────────
+router.get('/competitor-gaps', async (req, res, next) => {
+  try {
+    const { site_id } = req.query;
+    const { getAllGaps, getGapsForSite } = require('../services/competitorScanner');
+    const data = site_id ? await getGapsForSite(site_id) : await getAllGaps();
+    res.json({ success: true, data });
+  } catch (err) { next(err); }
+});
+
+// ── POST /api/v1/rapat/competitor — register competitor for a site ─────────────
+router.post('/competitor', async (req, res, next) => {
+  try {
+    const { site_id, competitor_url } = req.body;
+    if (!site_id || !competitor_url) {
+      return res.status(400).json({
+        success: false,
+        error: { code: 'MISSING_FIELDS', message: 'site_id dan competitor_url wajib diisi' },
+      });
+    }
+    const { addCompetitor } = require('../services/competitorScanner');
+    const row = await addCompetitor(site_id, competitor_url);
+    res.status(201).json({ success: true, data: row });
+  } catch (err) { next(err); }
+});
+
+// ── POST /api/v1/rapat/competitor/:id (DELETE competitor) ────────────────────
+router.delete('/competitor/:id', async (req, res, next) => {
+  try {
+    const { rowCount } = await query(
+      'DELETE FROM competitor_data WHERE id = $1', [req.params.id]
+    );
+    if (!rowCount) return res.status(404).json({ success: false, error: { code: 'NOT_FOUND', message: 'Competitor not found' } });
+    res.json({ success: true, data: { message: 'Deleted' } });
+  } catch (err) { next(err); }
+});
+
+// ── POST /api/v1/rapat/trigger — manual trigger rapat redaksi ─────────────────
 router.post('/trigger', async (req, res, next) => {
   try {
-    const today = new Date().toISOString().slice(0, 10);
+    const ChiefEditorAgent = require('../agents/chiefEditor');
+    const chief            = new ChiefEditorAgent();
 
-    // 1. Article stats for the last 7 days per site
-    const { rows: siteStats } = await query(
-      `SELECT s.name AS site_name,
-              COUNT(a.id)::int                           AS total_articles,
-              COUNT(a.id) FILTER (WHERE a.status = 'published')::int AS published,
-              COUNT(a.id) FILTER (WHERE a.status = 'failed')::int    AS failed,
-              ROUND(AVG(a.quality_score)::numeric, 1)   AS avg_quality,
-              ROUND(AVG(a.eeat_score)::numeric, 1)      AS avg_eeat
-       FROM sites s
-       LEFT JOIN articles a ON a.site_id = s.id
-         AND a.created_at > NOW() - INTERVAL '7 days'
-       WHERE s.status = 'active'
-       GROUP BY s.id, s.name
-       ORDER BY published DESC`
-    );
-
-    // 2. Pipeline bottleneck — counts per status in last 7 days
-    const { rows: pipelineRows } = await query(
-      `SELECT status, COUNT(*)::int AS count
-       FROM articles
-       WHERE created_at > NOW() - INTERVAL '7 days'
-       GROUP BY status
-       ORDER BY count DESC`
-    );
-    const pipeline = {};
-    for (const r of pipelineRows) pipeline[r.status] = r.count;
-
-    // 3. Top performing articles this week
-    const { rows: topArticles } = await query(
-      `SELECT a.title, a.quality_score, a.eeat_score, s.name AS site_name
-       FROM articles a
-       LEFT JOIN sites s ON s.id = a.site_id
-       WHERE a.status = 'published'
-         AND a.published_at > NOW() - INTERVAL '7 days'
-         AND a.quality_score IS NOT NULL
-       ORDER BY a.quality_score DESC
-       LIMIT 5`
-    );
-
-    // 4. Active alerts
-    const { rows: alertRows } = await query(
-      `SELECT message, level FROM system_logs
-       WHERE level IN ('warn','error','critical')
-         AND created_at > NOW() - INTERVAL '24 hours'
-       ORDER BY created_at DESC LIMIT 5`
-    );
-
-    // 5. Failed jobs this week
-    const { rows: failedJobs } = await query(
-      `SELECT job_type, COUNT(*)::int AS count
-       FROM job_queue
-       WHERE status IN ('failed','dead')
-         AND created_at > NOW() - INTERVAL '7 days'
-       GROUP BY job_type
-       ORDER BY count DESC`
-    );
-
-    // 6. Source health
-    const { rows: sourceStats } = await query(
-      `SELECT COUNT(*) FILTER (WHERE is_active = true)::int  AS active,
-              COUNT(*) FILTER (WHERE is_active = false)::int AS inactive,
-              COUNT(*)::int                                   AS total
-       FROM sources`
-    );
-    const sources = sourceStats[0] || { active: 0, inactive: 0, total: 0 };
-
-    // ── Build performance_report ──────────────────────────────────────────────
-    const totalPublished = siteStats.reduce((s, r) => s + (r.published || 0), 0);
-    const totalFailed    = siteStats.reduce((s, r) => s + (r.failed || 0), 0);
-    const avgQuality     = siteStats.length
-      ? (siteStats.reduce((s, r) => s + (parseFloat(r.avg_quality) || 0), 0) / siteStats.length).toFixed(1)
-      : null;
-
-    const performance_report = {
-      period: 'last_7_days',
-      total_published: totalPublished,
-      total_failed: totalFailed,
-      avg_quality_score: avgQuality,
-      pipeline_snapshot: pipeline,
-      site_breakdown: siteStats,
-      top_articles: topArticles,
-      source_health: sources,
-    };
-
-    // ── Build recommendations ─────────────────────────────────────────────────
-    const recommendations = [];
-    if (totalFailed > 3) recommendations.push(`Pipeline menghasilkan ${totalFailed} artikel gagal — cek API key dan quota.`);
-    if (parseFloat(avgQuality) < 75) recommendations.push(`Rata-rata quality score ${avgQuality} di bawah target 75 — pertimbangkan tuning prompt.`);
-    if (sources.inactive > sources.active) recommendations.push(`${sources.inactive} sumber tidak aktif lebih banyak dari aktif — review dan aktifkan sumber relevan.`);
-    if (failedJobs.length > 0) {
-      const topFail = failedJobs[0];
-      recommendations.push(`Stage ${topFail.job_type} paling banyak gagal (${topFail.count}x) — perlu investigasi.`);
-    }
-    if (alertRows.length > 0) recommendations.push(`${alertRows.length} alert sistem aktif dalam 24 jam terakhir — segera tindaklanjuti.`);
-    if (recommendations.length === 0) recommendations.push('Sistem berjalan normal. Pertahankan performa dan monitor sumber baru.');
-
-    // ── Build human-readable summary ─────────────────────────────────────────
-    const siteLines = siteStats.map(s =>
-      `• ${s.site_name}: ${s.published} publish, ${s.failed} gagal (Quality: ${s.avg_quality || '—'}, E-E-A-T: ${s.avg_eeat || '—'})`
-    ).join('\n') || '• Belum ada site aktif.';
-
-    const topLines = topArticles.map((a, i) =>
-      `${i + 1}. "${a.title}" — ${a.site_name} (Quality: ${a.quality_score}, E-E-A-T: ${a.eeat_score})`
-    ).join('\n') || 'Belum ada artikel publish minggu ini.';
-
-    const alertLines = alertRows.length
-      ? alertRows.map(a => `[${a.level.toUpperCase()}] ${a.message}`).join('\n')
-      : 'Tidak ada alert kritis.';
-
-    const recLines = recommendations.map((r, i) => `${i + 1}. ${r}`).join('\n');
-
-    const summary =
-`=== NOTULEN RAPAT REDAKSI — ${today} ===
-
-📊 RINGKASAN PRODUKSI (7 HARI TERAKHIR)
-Total Publish  : ${totalPublished} artikel
-Total Gagal    : ${totalFailed} artikel
-Avg Quality    : ${avgQuality || '—'}
-Sumber Aktif   : ${sources.active}/${sources.total}
-
-📍 PER SITE
-${siteLines}
-
-🏆 TOP ARTIKEL MINGGU INI
-${topLines}
-
-🚨 ALERT SISTEM (24 JAM)
-${alertLines}
-
-💡 REKOMENDASI
-${recLines}
-
---- Notulen dibuat otomatis oleh Analyst Agent ${new Date().toLocaleString('id-ID', { timeZone: 'Asia/Jakarta' })} ---`;
-
-    // ── Save to rapat_notes ───────────────────────────────────────────────────
-    const { rows: saved } = await query(
-      `INSERT INTO rapat_notes (session_date, summary, trend_data, performance_report, recommendations)
-       VALUES ($1, $2, $3, $4, $5)
-       ON CONFLICT DO NOTHING
-       RETURNING *`,
-      [
-        today,
-        summary,
-        JSON.stringify({ generated_at: new Date().toISOString(), sources_active: sources.active }),
-        JSON.stringify(performance_report),
-        JSON.stringify({ items: recommendations }),
-      ]
-    );
-
-    // If same-day conflict, upsert with explicit id
-    let note = saved[0];
-    if (!note) {
-      const { rows: upserted } = await query(
-        `UPDATE rapat_notes
-         SET summary = $2, trend_data = $3, performance_report = $4, recommendations = $5, created_at = NOW()
-         WHERE session_date = $1
-         RETURNING *`,
-        [
-          today,
-          summary,
-          JSON.stringify({ generated_at: new Date().toISOString(), sources_active: sources.active }),
-          JSON.stringify(performance_report),
-          JSON.stringify({ items: recommendations }),
-        ]
-      );
-      note = upserted[0];
-    }
+    // Run full Phase 9 rapat asynchronously and return session info
+    const result = await chief.runRapat();
 
     res.json({
       success: true,
       data: {
-        message: `Rapat Redaksi ${today} berhasil dibuat dari data real-time.`,
-        notulen: note,
-        stats: { totalPublished, totalFailed, avgQuality, sourcesActive: sources.active },
+        message:     `Rapat Redaksi selesai: ${result.calendarItemsCreated} topik dijadwalkan untuk ${result.sitesProcessed} site`,
+        sessionId:   result.sessionId,
+        today:       result.today,
+        sites:       result.sitesProcessed,
+        calendar:    result.calendarItemsCreated,
+        trends:      result.trendsIdentified,
+        recommendations: result.recommendations || [],
+        note:        'Lihat tab Notulen untuk laporan lengkap.',
       },
     });
+  } catch (err) {
+    // If runRapat fails hard, still return informative error
+    next(err);
+  }
+});
+
+// ── GET /api/v1/rapat/:id — detail satu rapat session ────────────────────────
+router.get('/:id', async (req, res, next) => {
+  try {
+    const { rows } = await query('SELECT * FROM rapat_notes WHERE id = $1', [req.params.id]);
+    if (!rows.length) return res.status(404).json({ success: false, error: { code: 'NOT_FOUND', message: 'Rapat session not found' } });
+    res.json({ success: true, data: rows[0] });
   } catch (err) { next(err); }
 });
 

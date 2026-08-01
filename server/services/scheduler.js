@@ -558,6 +558,50 @@ function getStatus() {
   return result;
 }
 
+// ── Phase 9 — Rapat Redaksi cron functions ───────────────────────────────────
+
+async function runTrendRefresh() {
+  try {
+    const { refreshTrends } = require('./trendFetcher');
+    const result = await refreshTrends();
+    await logger.info('Scheduler', `Phase 9 trend refresh done: ${result.fetched} fetched, ${result.stored} stored`);
+  } catch (err) {
+    await logger.error('Scheduler', `Phase 9 trend refresh error: ${err.message}`);
+  }
+}
+
+async function runCompetitorScan() {
+  try {
+    const { scanCompetitorGaps } = require('./competitorScanner');
+    const result = await scanCompetitorGaps();
+    await logger.info('Scheduler', `Phase 9 competitor scan done: ${result.scanned} scanned, ${result.gaps} gaps`);
+  } catch (err) {
+    await logger.error('Scheduler', `Phase 9 competitor scan error: ${err.message}`);
+  }
+}
+
+async function runPerformanceAnalysis() {
+  try {
+    const AnalystAgent = require('../agents/analyst');
+    const analyst      = new AnalystAgent();
+    await analyst.analyzePerformance({ days: 7 });
+    await logger.info('Scheduler', 'Phase 9 performance analysis complete (Saturday pre-rapat)');
+  } catch (err) {
+    await logger.error('Scheduler', `Phase 9 performance analysis error: ${err.message}`);
+  }
+}
+
+async function runRapatRedaksi() {
+  try {
+    const ChiefEditorAgent = getChiefEditor();
+    const chief            = new ChiefEditorAgent();
+    const result           = await chief.runRapat();
+    await logger.info('Scheduler', `Phase 9 Rapat Redaksi done: ${result.calendarItemsCreated} calendar items, ${result.sitesProcessed} sites`);
+  } catch (err) {
+    await logger.error('Scheduler', `Phase 9 Rapat Redaksi error: ${err.message}`);
+  }
+}
+
 /**
  * Start semua cron jobs (dipanggil saat server boot)
  */
@@ -565,9 +609,10 @@ async function start() {
   // ── Setup per-site crons (6.1) ────────────────────────────────────────────
   await reloadSiteCrons();
 
-  // ── Source Refresh setiap 6 jam (6.3) ─────────────────────────────────────
+  // ── Source Refresh + Trend Refresh setiap 6 jam (6.3 + 9.1) ─────────────
   const sourceRefreshTask = cron.schedule('0 */6 * * *', async () => {
     await refreshAllSources();
+    await runTrendRefresh();          // Phase 9.1: fetch Google Trends setiap 6 jam
   }, { timezone: 'Asia/Jakarta' });
   _systemCrons.push(sourceRefreshTask);
 
@@ -584,7 +629,31 @@ async function start() {
   }, { timezone: 'Asia/Jakarta' });
   _systemCrons.push(statsTask);
 
-  await logger.info('Scheduler', 'Phase 6 Scheduler started: site-crons, source-refresh(6h), article-check(01:00), stats(23:50)');
+  // ── Phase 9: Competitor gap scan — Sabtu 20:00 WIB (9.3) ─────────────────
+  const competitorScanTask = cron.schedule('0 20 * * 6', async () => {
+    await runCompetitorScan();
+  }, { timezone: 'Asia/Jakarta' });
+  _systemCrons.push(competitorScanTask);
+
+  // ── Phase 9: Performance analysis — Sabtu 21:00 WIB (9.4) ────────────────
+  const perfAnalysisTask = cron.schedule('0 21 * * 6', async () => {
+    await runPerformanceAnalysis();
+  }, { timezone: 'Asia/Jakarta' });
+  _systemCrons.push(perfAnalysisTask);
+
+  // ── Phase 9: Trend prediction (LLM) — Senin 06:30 WIB (9.2) ─────────────
+  const trendPredictTask = cron.schedule('30 6 * * 1', async () => {
+    await runTrendRefresh();         // Refresh sinyal fresh terlebih dahulu
+  }, { timezone: 'Asia/Jakarta' });
+  _systemCrons.push(trendPredictTask);
+
+  // ── Phase 9: Rapat Redaksi (Content Calendar + Notulen) — Senin 07:00 WIB ─
+  const rapatTask = cron.schedule('0 7 * * 1', async () => {
+    await runRapatRedaksi();
+  }, { timezone: 'Asia/Jakarta' });
+  _systemCrons.push(rapatTask);
+
+  await logger.info('Scheduler', 'Phase 9 Scheduler started: site-crons, source-refresh(6h), article-check(01:00), stats(23:50), competitor-scan(Sat20:00), perf-analysis(Sat21:00), trend-predict(Mon06:30), rapat(Mon07:00)');
 }
 
 /**

@@ -175,6 +175,16 @@ export default function Rapat() {
   const [editEntry, setEditEntry]   = useState(null);
   const [deleting, setDeleting]     = useState(null);
 
+  // Phase 9 additions
+  const [refreshingTrends, setRefreshingTrends]   = useState(false);
+  const [trendRefreshMsg, setTrendRefreshMsg]     = useState(null);
+  const [performance, setPerformance]             = useState(null);
+  const [loadingPerf, setLoadingPerf]             = useState(false);
+  const [showPerfCard, setShowPerfCard]           = useState(false);
+  const [competitorGaps, setCompetitorGaps]       = useState([]);
+  const [showGapsPanel, setShowGapsPanel]         = useState(false);
+  const [loadingGaps, setLoadingGaps]             = useState(false);
+
   const load = useCallback(async () => {
     const [n, l, p, cal, sl] = await Promise.all([
       rapatApi.list().catch(() => ({ data: [] })),
@@ -193,12 +203,55 @@ export default function Rapat() {
   useEffect(() => { load(); }, [load]);
 
   const handleTrigger = async () => {
-    if (!confirm('Jalankan Rapat Redaksi sekarang?')) return;
+    if (!confirm('Jalankan Rapat Redaksi sekarang? Proses ini akan men-generate prediksi tren dan content calendar untuk semua site aktif.')) return;
     setTriggering(true);
-    const res = await rapatApi.trigger().catch(e => ({ data: { message: e?.message || 'Error' } }));
+    setTriggerResult(null);
+    const res = await rapatApi.trigger().catch(e => ({ data: { message: e?.response?.data?.error?.message || e?.message || 'Error menjalankan rapat' } }));
     setTriggerResult(res.data);
     setTriggering(false);
     load();
+  };
+
+  // Phase 9: Refresh Trends
+  const handleRefreshTrends = async () => {
+    setRefreshingTrends(true);
+    setTrendRefreshMsg(null);
+    try {
+      const res = await rapatApi.refreshTrends();
+      setTrendRefreshMsg({ type: 'success', text: res.data?.message || 'Trend refresh selesai' });
+      // Reload predictions
+      const p = await rapatApi.predictions().catch(() => ({ data: [] }));
+      setPredictions(p.data || []);
+    } catch (err) {
+      setTrendRefreshMsg({ type: 'error', text: err?.response?.data?.error?.message || 'Gagal refresh tren' });
+    }
+    setRefreshingTrends(false);
+  };
+
+  // Phase 9: Load performance report (lazy)
+  const handleTogglePerf = async () => {
+    if (!showPerfCard && !performance) {
+      setLoadingPerf(true);
+      try {
+        const res = await rapatApi.performance();
+        setPerformance(res.data);
+      } catch (_) {}
+      setLoadingPerf(false);
+    }
+    setShowPerfCard(v => !v);
+  };
+
+  // Phase 9: Load competitor gaps (lazy)
+  const handleToggleGaps = async () => {
+    if (!showGapsPanel && competitorGaps.length === 0) {
+      setLoadingGaps(true);
+      try {
+        const res = await rapatApi.competitorGaps();
+        setCompetitorGaps(res.data || []);
+      } catch (_) {}
+      setLoadingGaps(false);
+    }
+    setShowGapsPanel(v => !v);
   };
 
   const handleSaveEntry = async (form) => {
@@ -244,24 +297,176 @@ export default function Rapat() {
 
   return (
     <div>
-      <div className="flex items-center justify-between mb-6 flex-wrap gap-2">
+      <div className="flex items-center justify-between mb-4 flex-wrap gap-2">
         <h2 className="text-xl font-bold text-gray-900">Rapat Redaksi</h2>
-        <div className="flex gap-2">
+        <div className="flex flex-wrap gap-2">
+          {/* Phase 9: Refresh Tren button */}
+          <button onClick={handleRefreshTrends} disabled={refreshingTrends}
+            className="bg-white border border-emerald-300 text-emerald-700 hover:bg-emerald-50 disabled:opacity-50 text-sm font-medium px-3 py-2 rounded-lg">
+            {refreshingTrends ? '⟳ Fetching...' : '📡 Refresh Tren'}
+          </button>
+          {/* Phase 9: Performance toggle */}
+          <button onClick={handleTogglePerf} disabled={loadingPerf}
+            className={`border text-sm font-medium px-3 py-2 rounded-lg ${showPerfCard ? 'bg-amber-100 border-amber-300 text-amber-800' : 'bg-white border-gray-300 text-gray-600 hover:bg-gray-50'}`}>
+            {loadingPerf ? '⟳ Loading...' : '📊 Analisis Performa'}
+          </button>
+          {/* Phase 9: Competitor gaps toggle */}
+          <button onClick={handleToggleGaps} disabled={loadingGaps}
+            className={`border text-sm font-medium px-3 py-2 rounded-lg ${showGapsPanel ? 'bg-rose-100 border-rose-300 text-rose-800' : 'bg-white border-gray-300 text-gray-600 hover:bg-gray-50'}`}>
+            {loadingGaps ? '⟳ Loading...' : '🔍 Gap Kompetitor'}
+          </button>
           <button onClick={() => setViewTab(t => t === 'notulen' ? 'calendar' : 'notulen')}
             className="bg-white border border-gray-300 text-gray-600 hover:bg-gray-50 text-sm font-medium px-4 py-2 rounded-lg">
             {viewTab === 'notulen' ? '📅 Lihat Kalender' : '📋 Lihat Notulen'}
           </button>
           <button onClick={handleTrigger} disabled={triggering}
             className="bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white text-sm font-medium px-4 py-2 rounded-lg">
-            {triggering ? 'Menjalankan...' : '🎙 Trigger Rapat Sekarang'}
+            {triggering ? '⟳ Menjalankan...' : '🎙 Trigger Rapat'}
           </button>
         </div>
       </div>
 
+      {/* Trend refresh result */}
+      {trendRefreshMsg && (
+        <div className={`mb-3 rounded-xl px-4 py-2.5 text-sm flex items-center justify-between ${trendRefreshMsg.type === 'success' ? 'bg-emerald-50 border border-emerald-200 text-emerald-800' : 'bg-red-50 border border-red-200 text-red-800'}`}>
+          <span>{trendRefreshMsg.text}</span>
+          <button onClick={() => setTrendRefreshMsg(null)} className="text-lg leading-none ml-3 opacity-50 hover:opacity-100">×</button>
+        </div>
+      )}
+
+      {/* Trigger result */}
       {triggerResult && (
-        <div className="mb-6 bg-indigo-50 border border-indigo-200 rounded-xl p-4">
-          <p className="text-sm text-indigo-800">{triggerResult.message}</p>
-          {triggerResult.note && <p className="text-xs text-indigo-600 mt-1">{triggerResult.note}</p>}
+        <div className="mb-4 bg-indigo-50 border border-indigo-200 rounded-xl p-4">
+          <div className="flex items-start justify-between">
+            <div>
+              <p className="text-sm text-indigo-800 font-medium">{triggerResult.message}</p>
+              {triggerResult.note && <p className="text-xs text-indigo-600 mt-1">{triggerResult.note}</p>}
+              {triggerResult.recommendations?.length > 0 && (
+                <ul className="mt-2 space-y-0.5">
+                  {triggerResult.recommendations.map((r, i) => (
+                    <li key={i} className="text-xs text-indigo-700">• {r}</li>
+                  ))}
+                </ul>
+              )}
+            </div>
+            <button onClick={() => setTriggerResult(null)} className="text-lg leading-none ml-3 opacity-40 hover:opacity-100">×</button>
+          </div>
+        </div>
+      )}
+
+      {/* Phase 9: Performance report card (collapsible) */}
+      {showPerfCard && performance && (
+        <div className="mb-4 bg-amber-50 border border-amber-200 rounded-xl p-4">
+          <div className="flex items-center justify-between mb-3">
+            <h3 className="font-semibold text-amber-900 text-sm">📊 Analisis Performa ({performance.periodDays || 7} Hari Terakhir)</h3>
+            <span className="text-xs text-amber-600">{performance.generatedAt ? new Date(performance.generatedAt).toLocaleString('id-ID') : ''}</span>
+          </div>
+
+          {/* Format performance */}
+          {performance.formatPerformance?.length > 0 && (
+            <div className="mb-3">
+              <p className="text-xs font-semibold text-amber-800 mb-1.5">Format Terbaik:</p>
+              <div className="flex flex-wrap gap-2">
+                {performance.formatPerformance.slice(0, 5).map(f => (
+                  <div key={f.format} className="bg-white rounded-lg border border-amber-200 px-2.5 py-1.5 text-xs">
+                    <span className="font-medium text-gray-800">{f.format?.replace(/_/g,' ')}</span>
+                    <span className="text-gray-500 ml-1">Q:{f.avg_quality || '—'} · {f.published || 0} artikel</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Provider performance */}
+          {performance.providerPerformance?.length > 0 && (
+            <div className="mb-3">
+              <p className="text-xs font-semibold text-amber-800 mb-1.5">Provider Terbaik:</p>
+              <div className="flex flex-wrap gap-2">
+                {performance.providerPerformance.slice(0, 4).map(p => (
+                  <div key={p.provider} className="bg-white rounded-lg border border-amber-200 px-2.5 py-1.5 text-xs">
+                    <span className="font-medium text-gray-800">{p.provider}</span>
+                    <span className="text-gray-500 ml-1">Q:{p.avg_quality || '—'} · {p.total || 0} artikel</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Evergreen candidates */}
+          {performance.evergreenCandidates?.length > 0 && (
+            <div className="mb-3">
+              <p className="text-xs font-semibold text-amber-800 mb-1.5">Kandidat Evergreen Update ({performance.evergreenCandidates.length}):</p>
+              <div className="space-y-1">
+                {performance.evergreenCandidates.slice(0, 4).map((e, i) => (
+                  <div key={e.id || i} className="bg-white rounded px-2.5 py-1.5 text-xs flex items-center justify-between border border-amber-100">
+                    <span className="text-gray-800 line-clamp-1 flex-1 mr-2">{e.title}</span>
+                    <span className="text-gray-400 flex-shrink-0">{e.site_name} · Q:{e.quality_score || '—'}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Pattern recommendations */}
+          {performance.patternRecommendations?.length > 0 && (
+            <div>
+              <p className="text-xs font-semibold text-amber-800 mb-1.5">Rekomendasi Pola:</p>
+              <ul className="space-y-0.5">
+                {performance.patternRecommendations.map((r, i) => (
+                  <li key={i} className="text-xs text-amber-700">• {r}</li>
+                ))}
+              </ul>
+            </div>
+          )}
+        </div>
+      )}
+      {showPerfCard && !performance && !loadingPerf && (
+        <div className="mb-4 bg-amber-50 border border-amber-200 rounded-xl p-4 text-sm text-amber-700 text-center">
+          Belum ada data performa. Artikel pertama harus dipublish dulu.
+        </div>
+      )}
+
+      {/* Phase 9: Competitor gaps panel (collapsible) */}
+      {showGapsPanel && (
+        <div className="mb-4 bg-rose-50 border border-rose-200 rounded-xl p-4">
+          <h3 className="font-semibold text-rose-900 text-sm mb-3">🔍 Gap Kompetitor</h3>
+          {competitorGaps.length === 0 ? (
+            <p className="text-sm text-rose-700">Belum ada kompetitor terdaftar. Tambahkan via Settings → Kompetitor.</p>
+          ) : (
+            <div className="space-y-3">
+              {competitorGaps.map(comp => {
+                const gapData = comp.gap_opportunities || {};
+                const gaps    = gapData.gaps || [];
+                return (
+                  <div key={comp.id} className="bg-white rounded-lg border border-rose-200 p-3">
+                    <div className="flex items-center justify-between mb-2">
+                      <div>
+                        <span className="text-xs font-semibold text-gray-800">{comp.site_name}</span>
+                        <span className="text-xs text-gray-500 ml-2">vs {comp.competitor_url}</span>
+                      </div>
+                      {comp.last_checked_at && (
+                        <span className="text-xs text-gray-400">{new Date(comp.last_checked_at).toLocaleDateString('id-ID')}</span>
+                      )}
+                    </div>
+                    {gaps.length > 0 ? (
+                      <div className="space-y-1">
+                        <p className="text-xs font-medium text-rose-700 mb-1">{gaps.length} topik belum kita tulis:</p>
+                        {gaps.slice(0, 5).map((g, i) => (
+                          <div key={i} className="text-xs text-gray-700 flex items-start gap-1.5">
+                            <span className="text-rose-400 mt-0.5">•</span>
+                            <span className="line-clamp-1">{g.topic}</span>
+                          </div>
+                        ))}
+                        {gaps.length > 5 && <p className="text-xs text-gray-400">+{gaps.length - 5} lainnya...</p>}
+                      </div>
+                    ) : (
+                      <p className="text-xs text-gray-500">Belum ada data gap. Jalankan competitor scan dulu.</p>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          )}
         </div>
       )}
 
@@ -309,7 +514,7 @@ export default function Rapat() {
             {predictions.length === 0 ? (
               <div className="bg-white rounded-xl border border-gray-200 p-6 text-center text-gray-400">
                 <div className="text-3xl mb-2">🔮</div>
-                <p className="text-xs">Belum ada prediksi. Tersedia setelah Phase 9.</p>
+                <p className="text-xs">Belum ada data prediksi. Klik "Refresh Tren" untuk fetch dari Google Trends.</p>
               </div>
             ) : (
               <div className="space-y-2">

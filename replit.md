@@ -37,7 +37,7 @@ The workflow `Start application` runs `npm run build && node server/index.js`.
 | 6 | Scheduler & Full Automation | ✅ Done |
 | 7 | Dashboard Full (8 halaman, semua real) | ✅ Done |
 | 8 | Quality & Humanizer Engine | ✅ Done |
-| 9 | Rapat Redaksi Engine | 🔜 Planned |
+| 9 | Rapat Redaksi Engine | ✅ Done |
 | 10 | Innovation Layer | 🔜 Planned |
 | 11 | Hardening & Production Ready | 🔜 Planned |
 

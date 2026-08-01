@@ -8,3 +8,4 @@
 - [Phase 6 Scheduler](phase6-scheduler.md) — Site crons from sites.config.posting_schedule; smartDelayMs ±15/+45min; source refresh 6h; reloadSiteCrons() needed after site changes
 - [Phase 7 Dashboard Full](phase7-dashboard.md) — All 8 menu fully real; Analytics has 7 tabs; Settings has Operasional tab (humanizer slider, thresholds, image chain editor); Articles has Human Review approve/reject; Rapat has 7-day × sites calendar grid
 - [Phase 8 Quality & Humanizer](phase8-quality.md) — Humanizer Level 1-4 complete; AI detection pre-check 50+ patterns; DUPLICATE_RISK job type; Quality tab in Settings with test-humanizer + check-duplicate tools; /api/v1/quality/* routes
+- [Phase 9 Rapat Redaksi Engine](phase9-rapat.md) — Google Trends RSS (no auth), competitor gap scanner, runRapat() full orchestration, 5 new Phase 9 crons; ON CONFLICT fallback pattern for rapat_notes insert

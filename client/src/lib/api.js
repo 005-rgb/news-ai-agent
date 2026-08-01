@@ -106,11 +106,16 @@ export const calendar = {
 
 // ── Rapat ─────────────────────────────────────────────────────────────────────
 export const rapat = {
-  list:        ()   => api.get('/rapat'),
-  latest:      ()   => api.get('/rapat/latest'),
-  get:         (id) => api.get(`/rapat/${id}`),
-  predictions: ()   => api.get('/rapat/trends/predictions'),
-  trigger:     ()   => api.post('/rapat/trigger'),
+  list:              ()              => api.get('/rapat'),
+  latest:            ()              => api.get('/rapat/latest'),
+  get:               (id)            => api.get(`/rapat/${id}`),
+  predictions:       (params)        => api.get('/rapat/trends/predictions', { params }),
+  refreshTrends:     ()              => api.post('/rapat/trends/refresh'),
+  performance:       (days = 7)      => api.get('/rapat/performance', { params: { days } }),
+  competitorGaps:    (site_id)       => api.get('/rapat/competitor-gaps', { params: site_id ? { site_id } : {} }),
+  addCompetitor:     (data)          => api.post('/rapat/competitor', data),
+  deleteCompetitor:  (id)            => api.delete(`/rapat/competitor/${id}`),
+  trigger:           ()              => api.post('/rapat/trigger'),
 };
 
 // ── Quality (Phase 8) ─────────────────────────────────────────────────────────

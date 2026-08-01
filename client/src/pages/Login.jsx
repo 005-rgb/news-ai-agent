@@ -75,7 +75,7 @@ export default function Login({ onLogin }) {
         </form>
 
         <p className="text-center text-gray-500 text-xs mt-4">
-          Phase 8 — Quality & Humanizer Engine ✓
+          Phase 9 — Rapat Redaksi Engine ✓
         </p>
       </div>
     </div>
