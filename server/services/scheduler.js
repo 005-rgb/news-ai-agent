@@ -119,11 +119,38 @@ async function setupSiteCrons(site) {
     return;
   }
 
-  const times = (schedule.times && schedule.times.length)
+  let times = (schedule.times && schedule.times.length)
     ? schedule.times
     : getDefaultTimesForCategories(site.categories);
 
   const useSmartTiming = schedule.use_smart_timing !== false; // default true
+
+  // ── Phase 10 Step 10.5: merge learned smart-timing hours ke schedule ─────
+  // Baca sites.config.smart_timing yang diisi oleh SmartTimingLearner setiap Sabtu.
+  // Jika confidence >= 0.60 dan ada best_hour yang valid, tambahkan ke times.
+  if (useSmartTiming && cfg.smart_timing && typeof cfg.smart_timing === 'object') {
+    const learnedHours = new Set();
+    for (const [key, data] of Object.entries(cfg.smart_timing)) {
+      if (key === 'last_updated') continue;
+      if (
+        data &&
+        typeof data.confidence === 'number' && data.confidence >= 0.60 &&
+        typeof data.best_hour === 'number' && data.best_hour >= 0 && data.best_hour <= 23
+      ) {
+        learnedHours.add(`${String(data.best_hour).padStart(2, '0')}:00`);
+      }
+    }
+    if (learnedHours.size > 0) {
+      const merged = [...new Set([...times, ...learnedHours])].sort();
+      if (merged.length > times.length) {
+        await logger.info('Scheduler',
+          `Smart timing: menambahkan jam optimal [${[...learnedHours].join(', ')}] ke site "${site.name}"`,
+          { siteId: site.id, learnedHours: [...learnedHours] }
+        );
+        times = merged;
+      }
+    }
+  }
 
   const tasks = [];
 

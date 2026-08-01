@@ -328,6 +328,25 @@ export default function Settings({ onLogout }) {
     }
   };
 
+  // Phase 10 Step 10.4: Buat variasi experimental dari template yang ada
+  const createVariation = async (tpl) => {
+    setTplMsg(null);
+    const varName = `${tpl.name} (Variasi)`;
+    try {
+      await settingsApi.createTemplate({
+        name: varName,
+        agent_type: tpl.agent_type,
+        category: tpl.category || 'berita',
+        prompt_template: tpl.prompt_template,
+        format_key: tpl.format_key,
+      });
+      setTplMsg({ ok: true, text: `Variasi "${varName}" dibuat dengan status Experimental. Edit lalu set sebagai Champion jika performanya lebih baik.` });
+      await loadTemplates();
+    } catch (err) {
+      setTplMsg({ ok: false, text: err?.message || 'Gagal membuat variasi' });
+    }
+  };
+
   const CATEGORIES = ['berita', 'akademik', 'feature', 'listicle', 'faq', 'evergreen', 'teknologi', 'bisnis', 'kesehatan', 'olahraga'];
   const AGENT_TYPES = ['writer', 'editor', 'reporter', 'qc'];
 
@@ -660,6 +679,11 @@ export default function Settings({ onLogout }) {
                       <button onClick={() => toggleActive(tpl)} className={`text-xs px-2 py-1 rounded border ${tpl.is_active ? 'border-gray-200 text-gray-500 hover:bg-red-50 hover:text-red-600' : 'border-green-200 text-green-600 hover:bg-green-50'}`}>
                         {tpl.is_active ? 'Nonaktifkan' : 'Aktifkan'}
                       </button>
+                      <button
+                        onClick={() => createVariation(tpl)}
+                        title="Buat salinan experimental untuk A/B testing (Phase 10)"
+                        className="text-xs px-2 py-1 rounded border border-purple-200 text-purple-600 hover:bg-purple-50"
+                      >⚗ Variasi</button>
                       <button onClick={() => startEdit(tpl)} className="text-xs px-3 py-1 bg-blue-50 hover:bg-blue-100 text-blue-600 rounded border border-blue-200">Edit</button>
                     </div>
                   </div>

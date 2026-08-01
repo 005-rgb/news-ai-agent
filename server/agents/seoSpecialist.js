@@ -86,6 +86,12 @@ class SeoSpecialistAgent extends BaseAgent {
     // ── 9. Schema markup ────────────────────────────────────────────────────
     const schemas = generateSchema(article, article.format || 'berita_singkat', siteConfig);
 
+    // ── Gabungkan semua outbound links (internal + external) untuk tracking ──
+    const outboundLinks = [
+      ...internalLinks.map(l => ({ url: l.url || l.wordpress_url, anchor: l.anchorText || l.title, type: l.isCrossSite ? 'cross_site' : 'internal' })),
+      ...externalLinks.map(l => ({ url: l.url, anchor: l.text || l.anchor, type: 'external' })),
+    ].filter(l => l.url);
+
     const seoData = {
       metaTitle,
       metaDescription,
@@ -95,6 +101,7 @@ class SeoSpecialistAgent extends BaseAgent {
       headingCheck,
       internalLinks,
       externalLinks,
+      outboundLinks,
       keywordDensity: densityInfo,
       schemas,
       optimizedAt: new Date().toISOString(),

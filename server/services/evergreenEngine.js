@@ -38,7 +38,10 @@ async function scanAndEnqueueEvergreenUpdates() {
      WHERE a.status = 'published'
        AND a.published_at  < NOW() - INTERVAL '30 days'
        AND (a.last_updated_at IS NULL OR a.last_updated_at < NOW() - INTERVAL '14 days')
-       AND a.format IN ('evergreen','feature_opini','jurnal_review','feature','berita_mendalam')
+       AND (
+         a.is_evergreen_candidate = true
+         OR a.format IN ('evergreen','feature_opini','jurnal_review','feature','berita_mendalam')
+       )
        AND (a.quality_score >= 60 OR a.quality_score IS NULL)
        AND s.status = 'active'
        AND NOT EXISTS (
