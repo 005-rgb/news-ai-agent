@@ -61,8 +61,15 @@ const PROVIDERS = {
     monthlyLimitDefault: 30000,
     resetLogic: 'midnight_utc',
   },
+  huggingface: {
+    name: 'HuggingFace',
+    defaultModel: 'mistralai/Mistral-7B-Instruct-v0.2',
+    dailyLimitDefault: 1000,
+    monthlyLimitDefault: 30000,
+    resetLogic: 'rolling_24h',
+  },
 };
 
-const FALLBACK_CHAIN = ['gemini','groq','deepseek','openrouter','mistral','together','cerebras','cohere'];
+const FALLBACK_CHAIN = ['gemini','groq','deepseek','openrouter','mistral','together','cerebras','cohere','huggingface'];
 
 module.exports = { PROVIDERS, FALLBACK_CHAIN };

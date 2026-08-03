@@ -5,10 +5,14 @@
  *
  * Alert types:
  *   key_exhausted          — API key mencapai 100% limit harian
+ *   key_critical           — API key mencapai 95% limit harian
  *   key_warning            — API key melebihi warning threshold
+ *   key_error_flood        — API key error >10x dalam 1 jam
+ *   all_keys_exhausted     — semua provider habis
  *   pipeline_stuck         — job processing > 30 menit
  *   wordpress_error        — error WP berulang dalam 24 jam
  *   quality_gate_fail_streak — ≥5 artikel gagal QC dalam 24 jam
+ *   dead_job_queue_growing — >10 dead jobs dalam 24 jam
  */
 
 const { query } = require('../db');
@@ -131,9 +135,12 @@ async function runAlertScan() {
   try {
     await Promise.all([
       _scanKeyAlerts(),
+      _scanKeyErrorFlood(),
+      _scanAllKeysExhausted(),
       _scanPipelineStuck(),
       _scanQualityStreak(),
       _scanWordPressErrors(),
+      _scanDeadJobQueue(),
     ]);
   } catch (err) {
     console.error('[AlertService] runAlertScan error:', err.message);
@@ -165,6 +172,14 @@ async function _scanKeyAlerts() {
         `Key mencapai 100% limit harian (${key.usage_today}/${key.daily_limit} token).`,
         { keyId: key.id, provider: key.provider, dedupeKey: `exhausted_${key.id}` }
       );
+    } else if (pct >= 0.95) {
+      await createAlert(
+        'key_critical', 'warning',
+        `API Key Critical: ${keyName}`,
+        `Key mencapai 95% limit harian (${key.usage_today}/${key.daily_limit} token). Segera tambah key cadangan.`,
+        { keyId: key.id, provider: key.provider, usagePct: Math.round(pct * 100), dedupeKey: `critical_${key.id}` }
+      );
+      await resolveAlertsByType('key_warning', `warning_${key.id}`);
     } else if (pct >= threshold) {
       await createAlert(
         'key_warning', 'warning',
@@ -175,7 +190,77 @@ async function _scanKeyAlerts() {
     } else {
       // Usage kembali normal — resolve alert warning yang ada
       await resolveAlertsByType('key_warning', `warning_${key.id}`);
+      await resolveAlertsByType('key_critical', `critical_${key.id}`);
     }
+  }
+}
+
+// ── key_error_flood — API key error >10x dalam 1 jam ─────────────────────────
+async function _scanKeyErrorFlood() {
+  const { rows } = await query(
+    `SELECT
+       COALESCE(metadata->>'keyId', 'unknown') AS key_id,
+       COALESCE(metadata->>'provider', 'unknown') AS provider,
+       count(*) AS cnt
+     FROM system_logs
+     WHERE level IN ('error','critical')
+       AND message ILIKE '%api key%'
+       AND created_at > NOW() - INTERVAL '1 hour'
+     GROUP BY metadata->>'keyId', metadata->>'provider'
+     HAVING count(*) > 10`
+  );
+  for (const r of rows) {
+    await createAlert(
+      'key_error_flood', 'critical',
+      `API Key Error Flood: ${r.provider}`,
+      `Key ${r.key_id.slice(0,8)} mengalami ${r.cnt} error dalam 1 jam terakhir. Periksa validitas key atau rate limit.`,
+      { keyId: r.key_id, provider: r.provider, errorCount: parseInt(r.cnt), dedupeKey: `err_flood_${r.key_id}` }
+    );
+  }
+}
+
+// ── all_keys_exhausted — semua provider habis ───────────────────────────────
+async function _scanAllKeysExhausted() {
+  const { rows } = await query(
+    `SELECT
+       provider,
+       count(*) FILTER (WHERE usage_today >= daily_limit) AS exhausted,
+       count(*) AS total
+     FROM api_keys
+     WHERE provider != '_config' AND status = 'active' AND daily_limit > 0
+     GROUP BY provider`
+  );
+  const allExhausted = rows.length > 0 && rows.every(r => parseInt(r.exhausted) >= parseInt(r.total));
+  const DEDUPE = 'all_keys_exhausted';
+  if (allExhausted) {
+    await createAlert(
+      'all_keys_exhausted', 'critical',
+      `Semua API Key Habis`,
+      `Semua ${rows.length} provider telah mencapai 100% limit harian. Sistem tidak dapat generate artikel baru hingga reset.`,
+      { providers: rows.map(r => r.provider), dedupeKey: DEDUPE }
+    );
+  } else {
+    await resolveAlertsByType('all_keys_exhausted', DEDUPE);
+  }
+}
+
+// ── dead_job_queue_growing — >10 dead jobs dalam 24 jam ─────────────────────
+async function _scanDeadJobQueue() {
+  const { rows } = await query(
+    `SELECT count(*) AS cnt FROM job_queue
+     WHERE status = 'dead' AND created_at > NOW() - INTERVAL '24 hours'`
+  );
+  const deadCount = parseInt(rows[0].cnt);
+  const DEDUPE = 'dead_queue_growing';
+  if (deadCount > 10) {
+    await createAlert(
+      'dead_job_queue_growing', 'critical',
+      `Dead Job Queue Growing: ${deadCount} jobs`,
+      `${deadCount} dead jobs dalam 24 jam terakhir. Periksa error patterns dan retry atau purge dead jobs.`,
+      { deadCount, dedupeKey: DEDUPE }
+    );
+  } else {
+    await resolveAlertsByType('dead_job_queue_growing', DEDUPE);
   }
 }
 

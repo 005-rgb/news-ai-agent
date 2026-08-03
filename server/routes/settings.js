@@ -401,4 +401,18 @@ router.patch('/prompt-templates/:id', async (req, res, next) => {
   } catch (err) { next(err); }
 });
 
+// POST /api/v1/settings/prompt-templates/:id/test — generate a short test article using this template
+router.post('/prompt-templates/:id/test', async (req, res, next) => {
+  try {
+    const { topic } = req.body;
+    const { rows } = await query(`SELECT * FROM prompt_versions WHERE id = $1`, [req.params.id]);
+    if (!rows.length) return res.status(404).json({ success: false, error: { code: 'NOT_FOUND', message: 'Template not found' } });
+    const tpl = rows[0];
+    const { callLLM } = require('../services/llmRouter');
+    const testPrompt = (tpl.prompt_template || '').replace(/\{topic\}/g, topic || 'test topic').replace(/\{CATEGORY\}/g, 'test').replace(/\{PERSONA\}/g, 'neutral') + '\n\nTopik: ' + (topic || 'Perkembangan teknologi AI di Indonesia');
+    const result = await callLLM(testPrompt, { maxTokens: 800, category: 'test' });
+    res.json({ success: true, data: { text: result.text, tokensUsed: result.tokensUsed, provider: result.provider } });
+  } catch (err) { next(err); }
+});
+
 module.exports = router;

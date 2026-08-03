@@ -2,6 +2,10 @@ import React, { useEffect, useState } from 'react';
 import { sites as sitesApi } from '../lib/api';
 
 const NICHES = ['politik','bisnis','teknologi','kesehatan','akademik','lifestyle','olahraga','hukum','umum'];
+const CITATION_STYLES = ['APA','IEEE','Harvard'];
+const SEO_PLUGINS = ['yoast','rankmath'];
+const FORMATS = ['berita_singkat','berita_panjang','jurnal_review','feature_opini','listicle','faq_article','evergreen'];
+const ALL_PROVIDERS = ['gemini','groq','deepseek','openrouter','mistral','together','cerebras','cohere','huggingface'];
 
 function PersonaModal({ site, onClose }) {
   return (
@@ -37,18 +41,42 @@ function PersonaModal({ site, onClose }) {
 }
 
 function SiteForm({ initial, onSave, onCancel }) {
-  const [form, setForm] = useState(initial || { name:'', url:'', wordpress_api_url:'', wordpress_username:'', niche:'teknologi', persona_description:'' });
+  const [form, setForm] = useState(initial || {
+    name:'', url:'', wordpress_api_url:'', wordpress_username:'',
+    niche:'teknologi', persona_description:'', citation_style:'APA',
+    seo_plugin:'yoast', human_review_required:false, default_author:'',
+    competitor_sites:[], preferred_providers:[],
+    content_format:'berita_singkat',
+    articles_per_day:3, time_slots:'07:00,12:00,19:00', random_delay_minutes:30,
+  });
   const set = (k,v) => setForm(f => ({...f,[k]:v}));
+  const toggleProvider = (p) => setForm(f => ({
+    ...f,
+    preferred_providers: f.preferred_providers?.includes(p)
+      ? f.preferred_providers.filter(x => x !== p)
+      : [...(f.preferred_providers||[]), p],
+  }));
+  const toggleCompetitor = () => {};
 
   const submit = async (e) => {
     e.preventDefault();
-    await onSave(form);
+    const payload = {
+      ...form,
+      articles_per_day: parseInt(form.articles_per_day) || 3,
+      random_delay_minutes: parseInt(form.random_delay_minutes) || 30,
+      competitor_sites: form.competitor_sites.filter(Boolean),
+      preferred_providers: form.preferred_providers,
+    };
+    await onSave(payload);
   };
 
   return (
     <form onSubmit={submit} className="bg-white rounded-xl border border-gray-200 p-6 mb-6">
       <h3 className="font-semibold text-gray-800 mb-4">{initial ? 'Edit Site' : 'Tambah Site Baru'}</h3>
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+
+      {/* Section: Basic */}
+      <div className="text-xs font-semibold text-gray-500 uppercase mb-2">Informasi Dasar</div>
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-4">
         <div>
           <label className="text-xs font-medium text-gray-600 block mb-1">Nama Site *</label>
           <input value={form.name} onChange={e=>set('name',e.target.value)} required className="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" placeholder="Berita Teknologi Indonesia" />
@@ -75,11 +103,105 @@ function SiteForm({ initial, onSave, onCancel }) {
             {NICHES.map(n=><option key={n} value={n}>{n}</option>)}
           </select>
         </div>
+      </div>
+
+      {/* Section: Content Config */}
+      <div className="text-xs font-semibold text-gray-500 uppercase mb-2">Konfigurasi Konten</div>
+      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mb-4">
+        <div>
+          <label className="text-xs font-medium text-gray-600 block mb-1">Format Konten Default</label>
+          <select value={form.content_format||'berita_singkat'} onChange={e=>set('content_format',e.target.value)} className="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+            {FORMATS.map(f=><option key={f} value={f}>{f.replace(/_/g,' ')}</option>)}
+          </select>
+        </div>
+        <div>
+          <label className="text-xs font-medium text-gray-600 block mb-1">Gaya Sitasi</label>
+          <select value={form.citation_style||'APA'} onChange={e=>set('citation_style',e.target.value)} className="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+            {CITATION_STYLES.map(c=><option key={c} value={c}>{c}</option>)}
+          </select>
+        </div>
+        <div>
+          <label className="text-xs font-medium text-gray-600 block mb-1">SEO Plugin</label>
+          <select value={form.seo_plugin||'yoast'} onChange={e=>set('seo_plugin',e.target.value)} className="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500">
+            {SEO_PLUGINS.map(s=><option key={s} value={s}>{s.charAt(0).toUpperCase()+s.slice(1)}</option>)}
+          </select>
+        </div>
+        <div>
+          <label className="text-xs font-medium text-gray-600 block mb-1">Author Default</label>
+          <input value={form.default_author||''} onChange={e=>set('default_author',e.target.value)} className="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" placeholder="Tim Redaksi" />
+        </div>
+      </div>
+
+      {/* Section: Posting Schedule */}
+      <div className="text-xs font-semibold text-gray-500 uppercase mb-2">Jadwal Posting</div>
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mb-4">
+        <div>
+          <label className="text-xs font-medium text-gray-600 block mb-1">Artikel per Hari</label>
+          <input type="number" min="1" max="10" value={form.articles_per_day||3} onChange={e=>set('articles_per_day',e.target.value)} className="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+        </div>
         <div className="sm:col-span-2">
+          <label className="text-xs font-medium text-gray-600 block mb-1">Slot Waktu (pisah koma)</label>
+          <input value={form.time_slots||''} onChange={e=>set('time_slots',e.target.value)} className="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" placeholder="07:00, 12:00, 19:00" />
+        </div>
+        <div>
+          <label className="text-xs font-medium text-gray-600 block mb-1">Random Delay (menit)</label>
+          <input type="number" min="0" max="120" value={form.random_delay_minutes||30} onChange={e=>set('random_delay_minutes',e.target.value)} className="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" />
+        </div>
+      </div>
+
+      {/* Section: LLM Providers */}
+      <div className="text-xs font-semibold text-gray-500 uppercase mb-2">Provider LLM Preferred</div>
+      <div className="flex flex-wrap gap-2 mb-4">
+        {ALL_PROVIDERS.map(p => (
+          <button key={p} type="button" onClick={() => toggleProvider(p)}
+            className={`text-xs px-3 py-1.5 rounded-lg border transition-colors ${
+              form.preferred_providers?.includes(p)
+                ? 'bg-blue-600 text-white border-blue-600'
+                : 'bg-white text-gray-600 border-gray-300 hover:bg-gray-50'
+            }`}>
+            {p}
+          </button>
+        ))}
+      </div>
+
+      {/* Section: Competitors */}
+      <div className="text-xs font-semibold text-gray-500 uppercase mb-2">Site Kompetitor (untuk Gap Analysis)</div>
+      <div className="mb-4 space-y-2">
+        {(form.competitor_sites||['']).map((c, i) => (
+          <div key={i} className="flex gap-2">
+            <input
+              value={c}
+              onChange={e => setForm(f => ({
+                ...f,
+                competitor_sites: f.competitor_sites.map((x, j) => j === i ? e.target.value : x),
+              }))}
+              className="flex-1 border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
+              placeholder="https://kompetitor.com"
+            />
+            <button type="button" onClick={() => setForm(f => ({...f, competitor_sites: f.competitor_sites.filter((_, j) => j !== i)}))}
+              className="text-red-500 hover:text-red-700 text-sm px-2">Hapus</button>
+          </div>
+        ))}
+        <button type="button" onClick={() => setForm(f => ({...f, competitor_sites: [...(f.competitor_sites||[]), '']}))}
+          className="text-blue-600 hover:text-blue-800 text-xs">+ Tambah kompetitor</button>
+      </div>
+
+      {/* Section: Persona + Human Review */}
+      <div className="text-xs font-semibold text-gray-500 uppercase mb-2">Persona & Review</div>
+      <div className="grid grid-cols-1 gap-4 mb-4">
+        <div>
           <label className="text-xs font-medium text-gray-600 block mb-1">Deskripsi Persona Site</label>
           <textarea value={form.persona_description||''} onChange={e=>set('persona_description',e.target.value)} rows={2} className="w-full border rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500" placeholder="Media teknologi dengan pendekatan edukatif, bahasa lugas, target pembaca mahasiswa dan profesional muda" />
         </div>
+        <div className="flex items-center gap-3">
+          <label className="flex items-center gap-2 cursor-pointer">
+            <input type="checkbox" checked={form.human_review_required||false} onChange={e=>set('human_review_required',e.target.checked)}
+              className="w-4 h-4 rounded border-gray-300 text-blue-600 focus:ring-blue-500" />
+            <span className="text-sm text-gray-700">Wajibkan Human Review sebelum publish</span>
+          </label>
+        </div>
       </div>
+
       <div className="flex gap-2 mt-4">
         <button type="submit" className="bg-blue-600 hover:bg-blue-700 text-white text-sm font-medium px-4 py-2 rounded-lg">Simpan</button>
         <button type="button" onClick={onCancel} className="bg-gray-100 hover:bg-gray-200 text-gray-700 text-sm px-4 py-2 rounded-lg">Batal</button>
@@ -105,8 +227,19 @@ export default function Sites() {
   useEffect(() => { load(); }, []);
 
   const handleSave = async (form) => {
-    if (editSite) { await sitesApi.update(editSite.id, form); }
-    else { await sitesApi.create(form); }
+    const config = {
+      ...(form.config || {}),
+      posting_schedule: {
+        articles_per_day: parseInt(form.articles_per_day) || 3,
+        time_slots: (form.time_slots || '').split(',').map(s => s.trim()).filter(Boolean),
+        random_delay_minutes: parseInt(form.random_delay_minutes) || 30,
+      },
+      content_format: form.content_format || 'berita_singkat',
+    };
+    const payload = { ...form, config };
+    delete payload.articles_per_day; delete payload.time_slots; delete payload.random_delay_minutes; delete payload.content_format;
+    if (editSite) { await sitesApi.update(editSite.id, payload); }
+    else { await sitesApi.create(payload); }
     setShowForm(false); setEditSite(null); load();
   };
 
@@ -186,7 +319,19 @@ export default function Sites() {
                     </td>
                     <td className="px-4 py-3">
                       <div className="flex gap-2 flex-wrap">
-                        <button onClick={() => { setEditSite(site); setShowForm(true); }} className="text-blue-600 hover:text-blue-800 text-xs">Edit</button>
+                        <button onClick={() => {
+                          const cfg = typeof site.config === 'string' ? JSON.parse(site.config||'{}') : (site.config||{});
+                          const ps = cfg.posting_schedule || {};
+                          setEditSite({
+                            ...site,
+                            content_format: cfg.content_format || site.content_format || 'berita_singkat',
+                            articles_per_day: ps.articles_per_day || 3,
+                            time_slots: (ps.time_slots || []).join(', '),
+                            random_delay_minutes: ps.random_delay_minutes || 30,
+                            competitor_sites: site.competitor_sites || [''],
+                          });
+                          setShowForm(true);
+                        }} className="text-blue-600 hover:text-blue-800 text-xs">Edit</button>
                         <button onClick={() => handlePersonaPreview(site)} className="text-purple-600 hover:text-purple-800 text-xs">Persona</button>
                         <button onClick={() => handleTest(site.id)} disabled={testing===site.id} className="text-green-600 hover:text-green-800 text-xs">
                           {testing===site.id ? 'Testing...' : 'Test WP'}

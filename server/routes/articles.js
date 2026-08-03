@@ -152,4 +152,55 @@ router.patch('/:id/flag-review', async (req, res, next) => {
   } catch (err) { next(err); }
 });
 
+// POST /api/v1/articles/:id/move-to-draft — move published article back to draft in WordPress
+router.post('/:id/move-to-draft', async (req, res, next) => {
+  try {
+    const { rows } = await query('SELECT * FROM articles WHERE id = $1', [req.params.id]);
+    if (!rows.length) return res.status(404).json({ success: false, error: { code: 'NOT_FOUND', message: 'Article not found' } });
+    const art = rows[0];
+    // If article has WP post id, try to set status=draft in WordPress
+    if (art.wordpress_post_id && art.site_id) {
+      try {
+        const siteRes = await query('SELECT * FROM sites WHERE id = $1', [art.site_id]);
+        if (siteRes.rows.length && siteRes.rows[0].wordpress_api_url && siteRes.rows[0].wordpress_username) {
+          const encryption = require('../utils/encryption');
+          let wpPass = siteRes.rows[0].wordpress_app_password_enc;
+          if (wpPass) { try { wpPass = encryption.decrypt(wpPass); } catch { wpPass = null; } }
+          if (wpPass) {
+            const axios = require('axios');
+            const auth = Buffer.from(`${siteRes.rows[0].wordpress_username}:${wpPass}`).toString('base64');
+            await axios.post(
+              `${siteRes.rows[0].wordpress_api_url}/posts/${art.wordpress_post_id}`,
+              { status: 'draft' },
+              { headers: { Authorization: `Basic ${auth}`, 'Content-Type': 'application/json' }, timeout: 30000 }
+            );
+          }
+        }
+      } catch (wpErr) {
+        // Log but don't block — DB update still happens
+        await query(
+          `INSERT INTO system_logs (id, level, agent, message, metadata) VALUES (gen_random_uuid(), 'warn', 'PublisherAgent', $1, $2)`,
+          [`WordPress move-to-draft failed: ${wpErr.message}`, JSON.stringify({ articleId: art.id, error: wpErr.message })]
+        );
+      }
+    }
+    await query(`UPDATE articles SET status = 'draft' WHERE id = $1`, [req.params.id]);
+    res.json({ success: true, data: { message: 'Article moved to draft' } });
+  } catch (err) { next(err); }
+});
+
+// GET /api/v1/articles/:id/logs — pipeline timeline logs for an article
+router.get('/:id/logs', async (req, res, next) => {
+  try {
+    const { rows } = await query(
+      `SELECT id, level, agent, message, metadata, created_at
+       FROM system_logs
+       WHERE metadata->>'articleId' = $1 OR metadata->>'article_id' = $1
+       ORDER BY created_at ASC`,
+      [req.params.id]
+    );
+    res.json({ success: true, data: rows });
+  } catch (err) { next(err); }
+});
+
 module.exports = router;

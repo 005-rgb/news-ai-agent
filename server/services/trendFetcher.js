@@ -290,4 +290,42 @@ async function getRecentTrends(hours = 48) {
   return rows;
 }
 
-module.exports = { refreshTrends, getRecentTrends, classifyCategory, trafficToConfidence };
+// ─────────────────────────────────────────────────────────────────────────────
+// PUBLIC — interestOverTime for a specific keyword (Google Trends interest over time)
+// ─────────────────────────────────────────────────────────────────────────────
+async function interestOverTime(keyword, geo = 'ID') {
+  const results = [];
+  try {
+    const axios = require('axios');
+    const tokenRes = await axios.get('https://trends.google.com/trends/api/explore', {
+      params: { hl: 'id', tz: -420, req: JSON.stringify({ comparisonItem: [{ keyword, geo, time: 'today 3-m' }], category: 0, property: '' }) },
+      timeout: 15000,
+      headers: { 'User-Agent': 'Mozilla/5.0 (compatible; NewsAIAgent/1.0)' },
+    });
+    const raw = (typeof tokenRes.data === 'string') ? tokenRes.data : JSON.stringify(tokenRes.data);
+    const tokens = JSON.parse(raw.replace(/^\)\]\}'\n/, ''));
+    const req = tokens.default?.timelineData?.request ?? JSON.stringify({ comparisonItem: [{ keyword, geo, time: 'today 3-m' }], category: 0, property: '' });
+    const widget = tokens.default?.widgets?.find(w => w.id === 'TIMESERIES');
+    if (!widget) return results;
+    const dataRes = await axios.get('https://trends.google.com/trends/api/widgetdata/multiline', {
+      params: { hl: 'id', tz: -420, req: JSON.stringify({ time: 'today 3-m', resolution: 'WEEK', locale: 'id', comparisonItem: [{ keyword, geo, time: 'today 3-m' }], requestSettings: { property: '' } }), token: widget.token },
+      timeout: 15000,
+      headers: { 'User-Agent': 'Mozilla/5.0 (compatible; NewsAIAgent/1.0)' },
+    });
+    const rawData = (typeof dataRes.data === 'string') ? dataRes.data : JSON.stringify(dataRes.data);
+    const parsed = JSON.parse(rawData.replace(/^\)\]\}'\n/, ''));
+    const lineData = parsed.default?.timelineData || [];
+    for (const point of lineData) {
+      results.push({
+        time: new Date(parseInt(point.time) * 1000).toISOString(),
+        value: parseInt(point.value[0]) || 0,
+      });
+    }
+    await logger.info('TrendFetcher', `interestOverTime: ${results.length} data points for "${keyword}"`);
+  } catch (err) {
+    await logger.warn('TrendFetcher', `interestOverTime failed for "${keyword}": ${err.message}`);
+  }
+  return results;
+}
+
+module.exports = { refreshTrends, getRecentTrends, classifyCategory, trafficToConfidence, interestOverTime };

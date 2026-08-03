@@ -345,6 +345,21 @@ export default function Settings({ onLogout }) {
     } catch (err) { setTplMsg({ ok: false, text: err?.message || 'Gagal' }); }
   };
 
+  const [testingTpl, setTestingTpl] = useState(null);
+  const [testResult, setTestResult] = useState(null);
+
+  const handleTestTemplate = async (tpl) => {
+    setTplMsg(null);
+    setTestingTpl(tpl.id);
+    setTestResult(null);
+    try {
+      const res = await settingsApi.testTemplate(tpl.id, 'Perkembangan teknologi AI di Indonesia');
+      setTestResult(res.data);
+      setTplMsg({ ok: true, text: `Test berhasil via ${res.data?.provider || 'LLM'} — ${res.data?.tokensUsed||0} token.` });
+    } catch (err) { setTplMsg({ ok: false, text: err?.message || 'Gagal test template.' }); }
+    finally { setTestingTpl(null); }
+  };
+
   const handleCreateTemplate = async (e) => {
     e.preventDefault();
     if (!newTpl.name || !newTpl.prompt_template) { setTplMsg({ ok: false, text: 'Nama dan isi template wajib.' }); return; }
@@ -630,6 +645,17 @@ export default function Settings({ onLogout }) {
             </div>
           )}
 
+          {testResult && (
+            <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+              <div className="text-xs font-semibold text-blue-800 mb-2">Hasil Test Template</div>
+              <div className="text-xs text-blue-600 mb-2">Provider: {testResult.provider} | Token: {testResult.tokensUsed}</div>
+              <div className="bg-white rounded p-3 text-xs text-gray-700 whitespace-pre-wrap max-h-48 overflow-y-auto border border-gray-200">
+                {testResult.text}
+              </div>
+              <button onClick={() => setTestResult(null)} className="text-xs text-blue-600 hover:text-blue-800 mt-2">Tutup</button>
+            </div>
+          )}
+
           {showNewForm && (
             <div className="bg-white rounded-xl border border-blue-200 p-5">
               <h4 className="font-semibold text-gray-800 mb-3">Buat Template Baru</h4>
@@ -708,6 +734,9 @@ export default function Settings({ onLogout }) {
                       )}
                       <button onClick={() => toggleActive(tpl)} className={`text-xs px-2 py-1 rounded border ${tpl.is_active ? 'border-gray-200 text-gray-500 hover:bg-red-50 hover:text-red-600' : 'border-green-200 text-green-600 hover:bg-green-50'}`}>
                         {tpl.is_active ? 'Nonaktifkan' : 'Aktifkan'}
+                      </button>
+                      <button onClick={() => handleTestTemplate(tpl)} disabled={testingTpl===tpl.id} className="text-xs px-2 py-1 rounded border border-blue-300 text-blue-600 hover:bg-blue-50 disabled:opacity-50">
+                        {testingTpl===tpl.id ? '...' : 'Test'}
                       </button>
                       <button
                         onClick={() => createVariation(tpl)}

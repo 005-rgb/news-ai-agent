@@ -328,11 +328,55 @@ DO $$ BEGIN
   END IF;
 END $$;
 
-DO $$ BEGIN
+DO $ BEGIN
   IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='articles' AND column_name='human_review_notes') THEN
     ALTER TABLE articles ADD COLUMN human_review_notes TEXT;
   END IF;
-END $$;
+END $;
+
+-- ── Phase 9: add word_count column for analytics ─────────────────────────────
+DO $ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='articles' AND column_name='word_count') THEN
+    ALTER TABLE articles ADD COLUMN word_count INTEGER;
+  END IF;
+END $;
+
+-- ── Phase 7: add site profile columns ────────────────────────────────────────
+DO $ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='sites' AND column_name='citation_style') THEN
+    ALTER TABLE sites ADD COLUMN citation_style VARCHAR(20) DEFAULT 'APA';
+  END IF;
+END $;
+
+DO $ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='sites' AND column_name='seo_plugin') THEN
+    ALTER TABLE sites ADD COLUMN seo_plugin VARCHAR(20) DEFAULT 'yoast';
+  END IF;
+END $;
+
+DO $ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='sites' AND column_name='human_review_required') THEN
+    ALTER TABLE sites ADD COLUMN human_review_required BOOLEAN DEFAULT false;
+  END IF;
+END $;
+
+DO $ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='sites' AND column_name='default_author') THEN
+    ALTER TABLE sites ADD COLUMN default_author VARCHAR(255);
+  END IF;
+END $;
+
+DO $ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='sites' AND column_name='competitor_sites') THEN
+    ALTER TABLE sites ADD COLUMN competitor_sites TEXT[] DEFAULT '{}';
+  END IF;
+END $;
+
+DO $ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='sites' AND column_name='preferred_providers') THEN
+    ALTER TABLE sites ADD COLUMN preferred_providers TEXT[] DEFAULT '{}';
+  END IF;
+END $;
 `;
 
 // ── Seed Data ─────────────────────────────────────────────────────────────────

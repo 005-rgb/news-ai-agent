@@ -347,4 +347,19 @@ router.get('/evergreen-updates', async (req, res, next) => {
   } catch (err) { next(err); }
 });
 
+// POST /api/v1/analytics/evergreen/:id/schedule-update — enqueue EVERGREEN_UPDATE job
+router.post('/evergreen/:id/schedule-update', async (req, res, next) => {
+  try {
+    const { v4: uuidv4 } = require('uuid');
+    const { rows } = await query('SELECT * FROM articles WHERE id = $1', [req.params.id]);
+    if (!rows.length) return res.status(404).json({ success: false, error: { code: 'NOT_FOUND', message: 'Article not found' } });
+    await query(
+      `INSERT INTO job_queue (id, article_id, job_type, status, priority, payload, scheduled_at)
+       VALUES ($1, $2, 'EVERGREEN_UPDATE', 'pending', 'normal', $3, NOW())`,
+      [uuidv4(), req.params.id, JSON.stringify({ triggeredBy: 'manual' })]
+    );
+    res.json({ success: true, data: { message: 'Evergreen update job queued' } });
+  } catch (err) { next(err); }
+});
+
 module.exports = router;

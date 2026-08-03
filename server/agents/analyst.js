@@ -148,7 +148,7 @@ class AnalystAgent extends BaseAgent {
                 COUNT(*) FILTER (WHERE status = 'published')::int AS published,
                 ROUND(AVG(quality_score)::numeric, 1)     AS avg_quality,
                 ROUND(AVG(eeat_score)::numeric, 1)        AS avg_eeat,
-                ROUND(AVG(word_count)::numeric, 0)        AS avg_words
+                ROUND(AVG((content_versions->>'wordCount')::numeric), 0) AS avg_words
          FROM articles
          WHERE created_at > NOW() - ($1 || ' days')::interval
            AND format IS NOT NULL
@@ -181,7 +181,7 @@ class AnalystAgent extends BaseAgent {
                 ROUND(AVG(a.quality_score)::numeric, 1)       AS avg_quality_recent,
                 ROUND(AVG(a.eeat_score)::numeric, 1)          AS avg_eeat_recent
          FROM prompt_versions pv
-         LEFT JOIN articles a ON a.prompt_version_id = pv.id
+         LEFT JOIN articles a ON a.prompt_version = pv.name
            AND a.created_at > NOW() - ($1 || ' days')::interval
          WHERE pv.is_active = true
          GROUP BY pv.id, pv.name, pv.format_key, pv.is_champion,

@@ -15,7 +15,9 @@ router.get('/', async (req, res, next) => {
     const { rows } = await query(
       `SELECT id, name, url, wordpress_api_url, wordpress_username,
               niche, categories, status, persona_memory, persona_description,
-              config, created_at, updated_at
+              config, citation_style, seo_plugin, human_review_required,
+              default_author, competitor_sites, preferred_providers,
+              created_at, updated_at
        FROM sites ORDER BY created_at ASC`
     );
     res.json({ success: true, data: rows });
@@ -28,7 +30,9 @@ router.get('/:id', async (req, res, next) => {
     const { rows } = await query(
       `SELECT id, name, url, wordpress_api_url, wordpress_username,
               niche, categories, status, persona_memory, persona_description,
-              config, created_at, updated_at
+              config, citation_style, seo_plugin, human_review_required,
+              default_author, competitor_sites, preferred_providers,
+              created_at, updated_at
        FROM sites WHERE id = $1`,
       [req.params.id]
     );
@@ -54,13 +58,20 @@ router.post('/', async (req, res, next) => {
     const { rows } = await query(
       `INSERT INTO sites (id, name, url, wordpress_api_url, wordpress_username,
                           wordpress_app_password_enc, niche, categories,
-                          persona_description, config, status)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
+                          persona_description, config, status,
+                          citation_style, seo_plugin, human_review_required,
+                          default_author, competitor_sites, preferred_providers)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)
        RETURNING id, name, url, wordpress_api_url, wordpress_username, niche, categories,
-                 status, persona_description, config, created_at, updated_at`,
+                 status, persona_description, config, citation_style, seo_plugin,
+                 human_review_required, default_author, competitor_sites, preferred_providers,
+                 created_at, updated_at`,
       [uuidv4(), name, url, wordpress_api_url || null, wordpress_username || null,
        encPassword, niche || null, categories || [],
-       persona_description || null, siteConfig || {}, status || 'active']
+       persona_description || null, siteConfig || {}, status || 'active',
+       req.body.citation_style || 'APA', req.body.seo_plugin || 'yoast',
+       req.body.human_review_required || false, req.body.default_author || null,
+       req.body.competitor_sites || [], req.body.preferred_providers || []]
     );
     res.status(201).json({ success: true, data: rows[0] });
   } catch (err) { next(err); }
@@ -70,7 +81,9 @@ router.post('/', async (req, res, next) => {
 router.patch('/:id', async (req, res, next) => {
   try {
     const allowed = ['name','url','wordpress_api_url','wordpress_username','wordpress_app_password',
-                     'niche','categories','persona_description','config','status','persona_memory'];
+                     'niche','categories','persona_description','config','status','persona_memory',
+                     'citation_style','seo_plugin','human_review_required','default_author',
+                     'competitor_sites','preferred_providers'];
     const updates = [];
     const values = [];
     let idx = 1;

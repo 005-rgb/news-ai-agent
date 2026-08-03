@@ -45,6 +45,7 @@ export const analytics = {
   smartTiming:        ()      => api.get('/analytics/smart-timing'),
   runSmartTiming:     ()      => api.post('/analytics/smart-timing/run'),
   evergreenUpdates:   ()      => api.get('/analytics/evergreen-updates'),
+  scheduleEvergreen:   (id)    => api.post(`/analytics/evergreen/${id}/schedule-update`),
   persona:            (siteId) => api.get(`/analytics/persona/${siteId}`),
   promotePrompt:      (id)    => api.post(`/analytics/prompts/${id}/promote`),
   deprecatePrompt:    (id)    => api.post(`/analytics/prompts/${id}/deprecate`),
@@ -95,6 +96,8 @@ export const articles = {
   approve:      (id)           => api.post(`/articles/${id}/approve`),
   reject:       (id, notes)    => api.post(`/articles/${id}/reject`, { notes }),
   flagReview:   (id, data)     => api.patch(`/articles/${id}/flag-review`, data),
+  moveToDraft:  (id)           => api.post(`/articles/${id}/move-to-draft`),
+  logs:         (id)           => api.get(`/articles/${id}/logs`),
 };
 
 // ── Queue ─────────────────────────────────────────────────────────────────────
@@ -148,6 +151,7 @@ export const settings = {
   promptTemplates:     ()              => api.get('/settings/prompt-templates'),
   createTemplate:      (data)          => api.post('/settings/prompt-templates', data),
   updateTemplate:      (id,data)       => api.patch(`/settings/prompt-templates/${id}`, data),
+  testTemplate:        (id, topic)     => api.post(`/settings/prompt-templates/${id}/test`, { topic }),
 };
 
 // ── Alerts (Phase 11.2) ───────────────────────────────────────────────────────

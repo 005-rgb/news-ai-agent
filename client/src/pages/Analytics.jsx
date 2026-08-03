@@ -428,9 +428,17 @@ export default function Analytics() {
                           </span>
                         </td>
                         <td className="px-3 py-3">
-                          {a.wordpress_url ? (
-                            <a href={a.wordpress_url} target="_blank" rel="noopener" className="text-xs text-blue-600 hover:underline">Lihat ↗</a>
-                          ) : <span className="text-gray-300 text-xs">—</span>}
+                          <div className="flex gap-1.5">
+                            {a.wordpress_url && (
+                              <a href={a.wordpress_url} target="_blank" rel="noopener" className="text-xs text-blue-600 hover:underline">Lihat ↗</a>
+                            )}
+                            <button onClick={async () => {
+                              try { await analytics.scheduleEvergreen(a.id); setEvergreen(prev => prev.map(x => x.id === a.id ? {...x, _scheduled: true} : x)); }
+                              catch(e){ console.error(e); }
+                            }} className="text-xs text-green-600 hover:text-green-800 font-medium">
+                              {a._scheduled ? 'Terkirim ✓' : 'Schedule Update'}
+                            </button>
+                          </div>
                         </td>
                       </tr>
                     ))}

@@ -46,7 +46,8 @@ export default function Articles() {
   const [regenStep, setRegenStep] = useState('');
   const [regenLoading, setRegenLoading] = useState(false);
   const [contentExpanded, setContentExpanded] = useState(false);
-  const [activeTab, setActiveTab] = useState('content'); // 'content' | 'brief' | 'scores'
+  const [activeTab, setActiveTab] = useState('content'); // 'content' | 'brief' | 'scores' | 'logs' | 'images'
+  const [articleLogs, setArticleLogs] = useState([]);
   const [rejectNotes, setRejectNotes] = useState('');
   const [rejectMode, setRejectMode] = useState(false);
   const [actionLoading, setActionLoading] = useState(false);
@@ -85,6 +86,8 @@ export default function Articles() {
     try {
       const res = await articlesApi.get(row.id);
       setSelected(res.data || row);
+      const lr = await articlesApi.logs(row.id).catch(() => ({ data: [] }));
+      setArticleLogs(lr.data || []);
     } catch {
       setSelected(row);
     }
@@ -452,6 +455,8 @@ export default function Articles() {
                   { id: 'versions', label: 'Versi' },
                   { id: 'brief', label: 'Brief' },
                   { id: 'scores', label: 'Skor & Meta' },
+                  { id: 'images', label: 'Gambar' },
+                  { id: 'logs', label: 'Log' },
                 ].map(tab => (
                   <button key={tab.id} onClick={() => setActiveTab(tab.id)}
                     className={`flex-1 py-2 text-xs font-medium ${activeTab === tab.id ? 'text-blue-600 border-b-2 border-blue-600' : 'text-gray-500 hover:text-gray-700'}`}>
@@ -639,6 +644,46 @@ export default function Articles() {
                   </div>
                 )}
 
+                {/* Images tab */}
+                {activeTab === 'images' && (
+                  <div className="space-y-3">
+                    {(() => {
+                      const imgData = typeof selected.image_data === 'string' ? JSON.parse(selected.image_data||'[]') : (selected.image_data||[]);
+                      const imgs = Array.isArray(imgData) ? imgData : (imgData?.images || []);
+                      if (!imgs.length) return <div className="text-xs text-gray-400 text-center py-8">Gambar belum tersedia. Pipeline belum mencapai tahap IMAGE.</div>;
+                      return imgs.map((img, i) => (
+                        <div key={i} className="border rounded-lg p-2">
+                          {img.url && <img src={img.url} alt={img.altText||''} className="w-full rounded mb-2 max-h-32 object-cover" />}
+                          <div className="text-xs text-gray-700 font-medium">{img.altText || '—'}</div>
+                          {img.credit && <div className="text-xs text-gray-500 mt-0.5">Credit: {img.credit}</div>}
+                          {img.source && <div className="text-xs text-gray-400 mt-0.5">Source: {img.source} ({img.width}×{img.height})</div>}
+                          {img.caption && <div className="text-xs text-gray-600 mt-1 italic">{img.caption}</div>}
+                        </div>
+                      ));
+                    })()}
+                  </div>
+                )}
+
+                {/* Logs tab — pipeline timeline */}
+                {activeTab === 'logs' && (
+                  <div className="space-y-1.5">
+                    {(() => {
+                      if (!articleLogs.length) return <div className="text-xs text-gray-400 text-center py-8">Log pipeline belum tersedia untuk artikel ini.</div>;
+                      return articleLogs.map((log, i) => (
+                        <div key={log.id || i} className="flex gap-2 text-xs">
+                          <div className="flex-shrink-0 w-20 text-gray-400 font-mono">
+                            {new Date(log.created_at).toLocaleTimeString('id-ID', { hour:'2-digit', minute:'2-digit', second:'2-digit' })}
+                          </div>
+                          <div className="flex-1">
+                            <span className={`font-medium ${log.level === 'error' || log.level === 'critical' ? 'text-red-600' : log.level === 'warn' ? 'text-amber-600' : 'text-gray-700'}`}>{log.agent}</span>
+                            <span className="text-gray-500 ml-1">— {log.message}</span>
+                          </div>
+                        </div>
+                      ));
+                    })()}
+                  </div>
+                )}
+
                 {/* Scores tab */}
                 {activeTab === 'scores' && (
                   <div className="space-y-3 text-xs">
@@ -707,6 +752,20 @@ export default function Articles() {
                   <button onClick={handleForcePublish} disabled={actionLoading}
                     className="flex-1 bg-green-600 hover:bg-green-700 disabled:opacity-50 text-white text-xs px-3 py-1.5 rounded-lg">
                     Force Publish
+                  </button>
+                  <button onClick={async () => {
+                    setActionLoading(true);
+                    try {
+                      await articlesApi.moveToDraft(selected.id);
+                      const res = await articlesApi.get(selected.id);
+                      setSelected(res.data || selected);
+                      setActionMsg({ ok: true, text: 'Artikel dipindahkan ke draft.' });
+                      load();
+                    } catch (err) { setActionMsg({ ok: false, text: err?.message || 'Gagal memindahkan ke draft.' }); }
+                    finally { setActionLoading(false); }
+                  }} disabled={actionLoading}
+                    className="flex-1 bg-gray-500 hover:bg-gray-600 disabled:opacity-50 text-white text-xs px-3 py-1.5 rounded-lg">
+                    Move to Draft
                   </button>
                   <button onClick={() => handleDelete(selected.id)}
                     className="bg-red-500 hover:bg-red-600 text-white text-xs px-3 py-1.5 rounded-lg">

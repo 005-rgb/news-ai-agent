@@ -121,6 +121,18 @@ const PROVIDERS = {
       return { text, tokensUsed: tokens };
     },
   },
+  huggingface: {
+    defaultModel: 'mistralai/Mistral-7B-Instruct-v0.2',
+    async call(keyValue, prompt, model, maxTokens, temperature) {
+      const res = await axios.post(
+        `https://api-inference.huggingface.co/models/${model || 'mistralai/Mistral-7B-Instruct-v0.2'}`,
+        { inputs: prompt, parameters: { max_new_tokens: maxTokens || 2000, temperature: temperature || 0.7, return_full_text: false } },
+        { headers: { Authorization: `Bearer ${keyValue}`, 'Content-Type': 'application/json' }, timeout: config.llmTimeout }
+      );
+      const text = Array.isArray(res.data) ? (res.data[0]?.generated_text || '') : (res.data?.generated_text || '');
+      return { text: text.trim(), tokensUsed: Math.ceil(text.length / 4) };
+    },
+  },
 };
 
 // ── Error classification ───────────────────────────────────────────────────
