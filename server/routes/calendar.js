@@ -6,10 +6,23 @@ const { query } = require('../db');
 
 const router = express.Router();
 
+// ── UUID validator — C-6 Fix ──────────────────────────────────────────────────
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+function isValidUUID(v) { return UUID_RE.test(v); }
+
+// C-5 Fix: Daftar kolom yang diizinkan untuk UPDATE — immutable, tidak bisa dimanipulasi.
+// Kolom SET dibangun hanya dari whitelist ini; user input TIDAK PERNAH langsung masuk
+// ke nama kolom dalam query. Pola ini wajib dipertahankan untuk semua route PATCH/PUT.
+const CALENDAR_ALLOWED_COLS = Object.freeze(['topic','category','format','priority','scheduled_date','status','notes']);
+
 // GET /api/v1/calendar
 router.get('/', async (req, res, next) => {
   try {
     const { site_id, from, to, status } = req.query;
+    // C-6 Fix: Validasi site_id sebagai UUID sebelum digunakan sebagai parameter SQL
+    if (site_id && !isValidUUID(site_id)) {
+      return res.status(400).json({ success: false, error: { code: 'INVALID_SITE_ID', message: 'site_id harus berformat UUID yang valid' } });
+    }
     const conditions = [];
     const params = [];
     let idx = 1;
@@ -52,12 +65,13 @@ router.post('/', async (req, res, next) => {
 // PATCH /api/v1/calendar/:id
 router.patch('/:id', async (req, res, next) => {
   try {
-    const allowed = ['topic','category','format','priority','scheduled_date','status','notes'];
     const updates = [];
     const values = [];
     let idx = 1;
 
-    for (const k of allowed) {
+    // C-5 Fix: Iterasi hanya atas kolom yang ada di whitelist CALENDAR_ALLOWED_COLS.
+    // Nama kolom tidak pernah berasal dari user input — hanya nilai yang diparameterkan.
+    for (const k of CALENDAR_ALLOWED_COLS) {
       if (req.body[k] !== undefined) {
         updates.push(`${k} = $${idx++}`);
         values.push(req.body[k]);

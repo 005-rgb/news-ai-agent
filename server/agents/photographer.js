@@ -172,7 +172,8 @@ Return ONLY the English prompt, nothing else.`;
     }
 
     const safePrompt = prompt.slice(0, 1000);
-    const url = `https://generativelanguage.googleapis.com/v1beta/models/imagen-3.0-generate-001:predict?key=${keyValue}`;
+    // C-8 Fix: Gunakan endpoint v1 stable, bukan v1beta yang dapat berubah tanpa notice.
+    const url = `https://generativelanguage.googleapis.com/v1/models/imagen-3.0-generate-001:predict?key=${keyValue}`;
 
     const resp = await axios.post(url, {
       instances: [{ prompt: safePrompt }],

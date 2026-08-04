@@ -301,8 +301,15 @@ CREATE TABLE IF NOT EXISTS system_alerts (
   resolved_at TIMESTAMPTZ,
   created_at  TIMESTAMPTZ  DEFAULT NOW()
 );
+-- C-4 Fix: Tambahkan kolom dedup_key untuk deduplication atomik via ON CONFLICT
+ALTER TABLE system_alerts ADD COLUMN IF NOT EXISTS dedup_key TEXT;
 CREATE INDEX IF NOT EXISTS idx_system_alerts_active ON system_alerts(is_resolved, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_system_alerts_type   ON system_alerts(type, is_resolved);
+-- Partial unique index: hanya satu active alert per (type, dedup_key)
+-- Partial index ini digunakan oleh ON CONFLICT ... DO NOTHING di alertService.js
+CREATE UNIQUE INDEX IF NOT EXISTS idx_system_alerts_dedup
+  ON system_alerts(type, dedup_key)
+  WHERE dedup_key IS NOT NULL AND is_resolved = false;
 
 -- ── 13. system_settings (Phase 7 — editable runtime config) ─────────────────
 CREATE TABLE IF NOT EXISTS system_settings (

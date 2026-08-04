@@ -22,22 +22,32 @@ const { v4: uuidv4 } = require('uuid');
 
 async function createAlert(type, severity, title, message, metadata = {}) {
   try {
-    const dedupeKey = metadata.dedupeKey || null;
-    if (dedupeKey) {
-      const { rows: existing } = await query(
-        `SELECT id FROM system_alerts
-         WHERE type = $1 AND is_resolved = false AND metadata->>'dedupeKey' = $2
-         LIMIT 1`,
-        [type, String(dedupeKey)]
-      );
-      if (existing.length > 0) return existing[0]; // Sudah ada alert aktif, skip duplikat
-    }
+    const dedupeKey = metadata.dedupeKey ? String(metadata.dedupeKey) : null;
+
+    // C-4 Fix: Ganti pola SELECT-then-INSERT (race condition) dengan satu INSERT atomik
+    // menggunakan ON CONFLICT ... DO NOTHING pada partial unique index:
+    //   idx_system_alerts_dedup ON system_alerts(type, dedup_key)
+    //   WHERE dedup_key IS NOT NULL AND is_resolved = false
+    // Dua concurrent call dengan dedupeKey yang sama hanya akan menghasilkan satu baris.
     const { rows } = await query(
-      `INSERT INTO system_alerts (id, type, severity, title, message, metadata, is_resolved)
-       VALUES ($1,$2,$3,$4,$5,$6,false) RETURNING *`,
-      [uuidv4(), type, severity, title, message, JSON.stringify(metadata)]
+      `INSERT INTO system_alerts (id, type, severity, title, message, metadata, dedup_key, is_resolved)
+       VALUES ($1,$2,$3,$4,$5,$6,$7,false)
+       ON CONFLICT (type, dedup_key) WHERE dedup_key IS NOT NULL AND is_resolved = false
+       DO NOTHING
+       RETURNING *`,
+      [uuidv4(), type, severity, title, message, JSON.stringify(metadata), dedupeKey]
     );
-    return rows[0];
+
+    if (rows.length === 0 && dedupeKey) {
+      // Conflict terjadi — alert dengan dedupeKey ini sudah aktif. Kembalikan yang existing.
+      const { rows: existing } = await query(
+        `SELECT * FROM system_alerts WHERE type = $1 AND dedup_key = $2 AND is_resolved = false LIMIT 1`,
+        [type, dedupeKey]
+      );
+      return existing[0] || null;
+    }
+
+    return rows[0] || null;
   } catch (err) {
     console.error('[AlertService] createAlert error:', err.message);
     return null;

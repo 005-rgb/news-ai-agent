@@ -56,14 +56,13 @@ try {
     },
     name: 'newsai.sid',
   };
-} catch {
-  sessionConfig = {
-    secret: config.sessionSecret,
-    resave: false,
-    saveUninitialized: false,
-    cookie: { httpOnly: true, maxAge: 24 * 60 * 60 * 1000, sameSite: 'lax' },
-    name: 'newsai.sid',
-  };
+} catch (pgSessionErr) {
+  // C-2 Fix: Jangan fallback silent ke in-memory store — gagal dengan jelas.
+  // In-memory store tidak aman untuk production (session hilang saat restart,
+  // tidak support multi-instance) dan tidak ada notifikasi kepada operator.
+  console.error('[FATAL] Gagal memuat connect-pg-simple:', pgSessionErr.message);
+  console.error('[FATAL] Server tidak dapat start tanpa persistent session store.');
+  process.exit(1);
 }
 
 // ── Middleware ────────────────────────────────────────────────────────────────

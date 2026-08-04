@@ -16,6 +16,10 @@ const { findDuplicates, keywordOverlap, topicFingerprint } = require('../utils/s
 
 const router = express.Router();
 
+// ── UUID validator — C-6 Fix ──────────────────────────────────────────────────
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+function isValidUUID(v) { return UUID_RE.test(v); }
+
 // ── POST /api/v1/quality/test-humanizer ──────────────────────────────────────
 // Test humanizer pada teks input, return before/after + AI detection report
 router.post('/test-humanizer', async (req, res, next) => {
@@ -84,6 +88,11 @@ router.post('/check-duplicate', async (req, res, next) => {
         success: false,
         error: { code: 'MISSING_TOPIC', message: 'Field "topic" wajib diisi' },
       });
+    }
+
+    // C-6 Fix: Validasi site_id sebagai UUID sebelum digunakan sebagai parameter SQL
+    if (site_id && !isValidUUID(site_id)) {
+      return res.status(400).json({ success: false, error: { code: 'INVALID_SITE_ID', message: 'site_id harus berformat UUID yang valid' } });
     }
 
     // Query artikel existing di site (atau semua site jika site_id tidak diberikan)

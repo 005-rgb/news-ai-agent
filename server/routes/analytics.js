@@ -34,10 +34,18 @@ router.get('/overview', cacheMiddleware(TTL_30S), async (req, res, next) => {
   } catch (err) { next(err); }
 });
 
+// ── UUID validator — C-6 Fix ──────────────────────────────────────────────────
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+function isValidUUID(v) { return UUID_RE.test(v); }
+
 // GET /api/v1/analytics/production — articles per day for 7 days
 router.get('/production', cacheMiddleware(TTL_1MIN, req => `route:production:${req.query.days || 7}:${req.query.site_id || ''}`), async (req, res, next) => {
   try {
     const { site_id, days = 7 } = req.query;
+    // C-6 Fix: Validasi site_id sebagai UUID sebelum digunakan sebagai parameter SQL
+    if (site_id && !isValidUUID(site_id)) {
+      return res.status(400).json({ success: false, error: { code: 'INVALID_SITE_ID', message: 'site_id harus berformat UUID yang valid' } });
+    }
     const params = [parseInt(days)];
     let siteFilter = '';
     if (site_id) { siteFilter = 'AND site_id = $2'; params.push(site_id); }

@@ -1,0 +1,40 @@
+🔴 CRITICAL — Harus diperbaiki sebelum production
+C-1 · DB Connection Leak saat Startup
+File: server/db.js ~line 530
+Masalah: Fungsi migrate() memanggil pool.connect() tetapi tidak pernah memanggil client.release() setelah selesai. Setiap restart server bocorkan 1 koneksi permanen. Dengan pool size 10, server akan hang setelah 10 restart.
+Fix: Tambahkan client.release() di blok finally setelah migrasi selesai.
+
+C-2 · Fallback Session Store Tidak Aman
+File: server/index.js ~line 59–67
+Masalah: Jika connect-pg-simple gagal load, server fallback ke in-memory store dengan secure: false tanpa logging error. Di production multi-instance, semua session akan hilang setiap restart dan tidak ada notifikasi.
+Fix: Jika connect-pg-simple gagal, lempar error dan hentikan proses — jangan fallback silent.
+
+C-3 · Race Condition Dual Execution pada Job Queue
+File: server/services/jobQueue.js ~line 197–212
+Masalah: runWatchdog() mereset job berstatus processing ke pending jika berjalan >30 menit. Jika job masih aktif tapi lambat (LLM timeout, upload gambar besar), job akan dieksekusi dua kali secara bersamaan — menghasilkan artikel duplikat di WordPress.
+Fix: Tambahkan lock berbasis pg_advisory_lock atau cek heartbeat timestamp sebelum reset.
+
+C-4 · Non-Atomic Deduplication Alert (Race Condition)
+File: server/services/alertService.js ~line 27–40
+Masalah: createAlert() melakukan SELECT dulu untuk cek dedupeKey, lalu INSERT terpisah. Dua panggilan concurrent dengan dedupeKey sama akan lolos kedua-duanya dan insert duplikat.
+Fix: Ganti dengan INSERT ... ON CONFLICT (dedup_key) DO NOTHING.
+
+C-5 · SQL Injection Risk — Dynamic WHERE Clause
+File: server/routes/analytics.js ~line 107, server/routes/calendar.js ~line 70, server/routes/sites.js ~line 111
+Masalah: Klausa WHERE dan SET dibangun dengan string interpolasi (${where}, ${updates.join(', ')}). Meski nilai di-parameterize, struktur query bisa dimanipulasi jika ada validasi yang terlewat.
+Fix: Gunakan query builder atau whitelist kolom yang ketat dengan mapping eksplisit.
+
+C-6 · Input site_id Tidak Divalidasi sebagai UUID
+File: server/routes/analytics.js ~line 40, server/routes/articles.js ~line 12, server/routes/quality.js ~line 23
+Masalah: site_id dari req.query langsung dipakai sebagai parameter SQL tanpa validasi format UUID. Input seperti '; DROP TABLE sites; -- bisa dieksekusi.
+Fix: Validasi UUID dengan regex atau library uuid sebelum digunakan.
+
+C-7 · adminPasswordHash Default Kosong — Bypass Auth
+File: server/config/index.js ~line 28–29
+Masalah: Jika ADMIN_PASSWORD_HASH tidak di-set, defaultnya adalah string kosong ''. Bergantung implementasi bcrypt comparison di auth.js, ini bisa menyebabkan authentication bypass atau crash yang unpredictable.
+Fix: Validasi ADMIN_PASSWORD_HASH wajib ada saat startup (seperti SESSION_SECRET), server tidak boleh start tanpa ini.
+
+C-8 · Imagen 3 Menggunakan Endpoint Beta Tidak Stabil
+File: server/agents/photographer.js ~line 175
+Masalah: Implementasi Imagen 3 menggunakan v1beta endpoint Google AI yang tidak stabil untuk production. Breaking changes tanpa notice bisa menyebabkan seluruh pipeline gambar gagal.
+Fix: Migrasi ke v1 stable endpoint atau tambahkan fallback graceful ke Unsplash/Pexels jika Imagen gagal.

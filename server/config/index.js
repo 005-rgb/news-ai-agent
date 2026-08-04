@@ -3,11 +3,24 @@
 require('dotenv').config();
 
 // ── Required env variables — server will not start without these ──────────────
-const REQUIRED = ['SESSION_SECRET', 'ENCRYPTION_KEY', 'DATABASE_URL'];
+// C-7 Fix: ADMIN_PASSWORD_HASH wajib di-set. Default kosong '' dapat menyebabkan
+// authentication bypass atau crash tidak terduga pada bcrypt.compare().
+const REQUIRED = ['SESSION_SECRET', 'ENCRYPTION_KEY', 'DATABASE_URL', 'ADMIN_PASSWORD_HASH'];
 const missing = REQUIRED.filter((k) => !process.env[k]);
 if (missing.length > 0) {
   console.error(`\n[CONFIG] Missing required environment variables: ${missing.join(', ')}`);
   console.error('[CONFIG] Server cannot start. Please set these variables and restart.\n');
+  if (missing.includes('ADMIN_PASSWORD_HASH')) {
+    console.error('[CONFIG] Generate hash dengan: node -e "require(\'bcryptjs\').hash(\'yourpassword\', 12).then(h => console.log(h))"');
+  }
+  process.exit(1);
+}
+
+// Validasi format bcrypt hash — harus diawali $2a$, $2b$, atau $2y$
+const passwordHash = process.env.ADMIN_PASSWORD_HASH || '';
+if (!passwordHash.match(/^\$2[aby]\$/)) {
+  console.error('\n[CONFIG] ADMIN_PASSWORD_HASH bukan format bcrypt yang valid (harus diawali $2a$, $2b$, atau $2y$).');
+  console.error('[CONFIG] Generate hash dengan: node -e "require(\'bcryptjs\').hash(\'yourpassword\', 12).then(h => console.log(h))"');
   process.exit(1);
 }
 

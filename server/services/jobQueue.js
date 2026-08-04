@@ -5,7 +5,7 @@
  * Full agent dispatch implemented in Phase 3
  */
 
-const { query } = require('../db');
+const { query, getClient } = require('../db');
 const { v4: uuidv4 } = require('uuid');
 const logger = require('../utils/logger');
 const config = require('../config');
@@ -29,54 +29,81 @@ async function enqueueJob(jobType, articleId, payload = {}, priority = 'normal',
 // ── Process next pending job ─────────────────────────────────────────────────
 
 async function processNextJob() {
-  // Claim one pending job atomically
-  const { rows } = await query(
-    `UPDATE job_queue
-     SET status = 'processing', started_at = NOW(), attempts = attempts + 1
-     WHERE id = (
-       SELECT id FROM job_queue
-       WHERE status = 'pending'
-         AND scheduled_at <= NOW()
-       ORDER BY
-         CASE priority WHEN 'high' THEN 0 WHEN 'normal' THEN 1 ELSE 2 END,
-         scheduled_at ASC
-       LIMIT 1
-       FOR UPDATE SKIP LOCKED
-     )
-     RETURNING *`
-  );
-
-  if (!rows.length) return null; // No pending jobs
-
-  const job = rows[0];
-  await logger.info('JobQueue', `Processing ${job.job_type} (job ${job.id})`, { jobType: job.job_type, articleId: job.article_id });
+  // C-3 Fix: Gunakan dedicated client untuk menahan pg_advisory_lock selama
+  // job berjalan. Advisory lock bersifat session-level — selama koneksi dipegang,
+  // watchdog tidak bisa mengambil lock dan tidak akan mereset job yang masih aktif.
+  const client = await getClient();
+  let job = null;
+  let lockId = null;
 
   try {
+    // Claim one pending job atomically
+    const { rows } = await client.query(
+      `UPDATE job_queue
+       SET status = 'processing', started_at = NOW(), attempts = attempts + 1
+       WHERE id = (
+         SELECT id FROM job_queue
+         WHERE status = 'pending'
+           AND scheduled_at <= NOW()
+         ORDER BY
+           CASE priority WHEN 'high' THEN 0 WHEN 'normal' THEN 1 ELSE 2 END,
+           scheduled_at ASC
+         LIMIT 1
+         FOR UPDATE SKIP LOCKED
+       )
+       RETURNING *`
+    );
+
+    if (!rows.length) return null; // No pending jobs
+
+    job = rows[0];
+
+    // Acquire session-level advisory lock keyed by job id.
+    // Lock ini ditahan selama proses job berjalan.
+    // Watchdog menggunakan pg_try_advisory_lock dengan lock_id yang sama —
+    // jika gagal mendapat lock, berarti job masih aktif dan tidak direset.
+    const lockRes = await client.query(
+      `SELECT hashtext($1)::bigint AS lock_id`, [job.id]
+    );
+    lockId = lockRes.rows[0].lock_id;
+    await client.query(`SELECT pg_advisory_lock($1)`, [lockId]);
+
+    await logger.info('JobQueue', `Processing ${job.job_type} (job ${job.id})`, { jobType: job.job_type, articleId: job.article_id });
+
     await dispatchJob(job);
     await query(
       `UPDATE job_queue SET status = 'done', finished_at = NOW() WHERE id = $1`,
       [job.id]
     );
     await logger.info('JobQueue', `${job.job_type} completed`, { jobId: job.id });
+
   } catch (err) {
-    const isFinal = job.attempts >= job.max_attempts;
-    const newStatus = isFinal ? 'dead' : 'pending';
-    const nextRun = isFinal ? null : new Date(Date.now() + 5000 * Math.pow(2, job.attempts));
+    if (job) {
+      const isFinal = job.attempts >= job.max_attempts;
+      const newStatus = isFinal ? 'dead' : 'pending';
+      const nextRun = isFinal ? null : new Date(Date.now() + 5000 * Math.pow(2, job.attempts));
 
-    await query(
-      `UPDATE job_queue SET status = $1, error_message = $2, finished_at = NOW()
-       ${nextRun ? `, scheduled_at = $3` : ''}
-       WHERE id = ${nextRun ? '$4' : '$3'}`,
-      nextRun
-        ? [newStatus, err.message, nextRun, job.id]
-        : [newStatus, err.message, job.id]
-    );
+      await query(
+        `UPDATE job_queue SET status = $1, error_message = $2, finished_at = NOW()
+         ${nextRun ? `, scheduled_at = $3` : ''}
+         WHERE id = ${nextRun ? '$4' : '$3'}`,
+        nextRun
+          ? [newStatus, err.message, nextRun, job.id]
+          : [newStatus, err.message, job.id]
+      );
 
-    if (isFinal) {
-      await logger.critical('JobQueue', `Job ${job.id} (${job.job_type}) moved to DEAD after ${job.attempts} attempts`, { error: err.message });
-    } else {
-      await logger.warn('JobQueue', `Job ${job.id} failed, will retry`, { error: err.message, attempt: job.attempts });
+      if (isFinal) {
+        await logger.critical('JobQueue', `Job ${job.id} (${job.job_type}) moved to DEAD after ${job.attempts} attempts`, { error: err.message });
+      } else {
+        await logger.warn('JobQueue', `Job ${job.id} failed, will retry`, { error: err.message, attempt: job.attempts });
+      }
     }
+  } finally {
+    // Lepas advisory lock (jika berhasil diperoleh) lalu kembalikan koneksi ke pool
+    if (lockId !== null) {
+      await client.query(`SELECT pg_advisory_unlock($1)`, [lockId]).catch(() => {});
+    }
+    client.release();
   }
 
   return job;
@@ -202,13 +229,45 @@ async function runWatchdog() {
   );
 
   for (const job of stuck) {
-    const isFinal = job.attempts >= job.max_attempts;
-    await query(
-      `UPDATE job_queue SET status = $1, error_message = 'Watchdog: stuck job reset'
-       WHERE id = $2`,
-      [isFinal ? 'dead' : 'pending', job.id]
-    );
-    await logger.warn('Watchdog', `Stuck job ${job.id} (${job.job_type}) reset to ${isFinal ? 'dead' : 'pending'}`);
+    // C-3 Fix: Gunakan dedicated client untuk setiap operasi advisory lock.
+    // pg_try_advisory_lock / pg_advisory_unlock HARUS berjalan pada sesi (koneksi) yang sama.
+    // Menggunakan query() (pool) dapat mengirim lock ke koneksi A dan unlock ke koneksi B,
+    // meninggalkan stale lock yang memblokir workers.
+    const watchdogClient = await getClient();
+    try {
+      // Hitung lock ID pada koneksi yang sama yang akan dipakai untuk try-lock & unlock
+      const lockRes = await watchdogClient.query(
+        `SELECT hashtext($1)::bigint AS lock_id`, [job.id]
+      );
+      const lockId = lockRes.rows[0].lock_id;
+
+      // Coba ambil advisory lock. Jika gagal → worker masih aktif (proses lambat, bukan crash)
+      // → SKIP reset untuk menghindari dual execution / artikel duplikat.
+      const tryRes = await watchdogClient.query(
+        `SELECT pg_try_advisory_lock($1) AS acquired`, [lockId]
+      );
+
+      if (!tryRes.rows[0].acquired) {
+        // Worker masih menahan lock — job masih aktif, jangan direset
+        await logger.warn('Watchdog', `Job ${job.id} (${job.job_type}) >30min tapi worker masih aktif — skip reset`);
+        continue;
+      }
+
+      // Berhasil ambil lock → worker sudah hilang (crash).
+      // Lepas lock DULU pada koneksi yang sama, lalu reset job via pool.
+      await watchdogClient.query(`SELECT pg_advisory_unlock($1)`, [lockId]);
+
+      const isFinal = job.attempts >= job.max_attempts;
+      await query(
+        `UPDATE job_queue SET status = $1, error_message = 'Watchdog: stuck job reset (worker crash)'
+         WHERE id = $2`,
+        [isFinal ? 'dead' : 'pending', job.id]
+      );
+      await logger.warn('Watchdog', `Stuck job ${job.id} (${job.job_type}) reset to ${isFinal ? 'dead' : 'pending'}`);
+    } finally {
+      // Pastikan koneksi selalu dikembalikan ke pool, bahkan jika ada error
+      watchdogClient.release();
+    }
   }
 
   // Keys with error flood

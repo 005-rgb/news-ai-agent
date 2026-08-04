@@ -9,6 +9,16 @@ const config = require('../config');
 
 const router = express.Router();
 
+// C-5 Fix: Daftar kolom yang diizinkan untuk UPDATE — immutable, tidak bisa dimanipulasi.
+// Kolom SET dibangun hanya dari whitelist ini; user input TIDAK PERNAH langsung masuk
+// ke nama kolom dalam query. Pola ini wajib dipertahankan untuk semua route PATCH/PUT.
+const SITES_ALLOWED_COLS = Object.freeze([
+  'name','url','wordpress_api_url','wordpress_username','wordpress_app_password',
+  'niche','categories','persona_description','config','status','persona_memory',
+  'citation_style','seo_plugin','human_review_required','default_author',
+  'competitor_sites','preferred_providers',
+]);
+
 // GET /api/v1/sites
 router.get('/', async (req, res, next) => {
   try {
@@ -80,15 +90,13 @@ router.post('/', async (req, res, next) => {
 // PATCH /api/v1/sites/:id
 router.patch('/:id', async (req, res, next) => {
   try {
-    const allowed = ['name','url','wordpress_api_url','wordpress_username','wordpress_app_password',
-                     'niche','categories','persona_description','config','status','persona_memory',
-                     'citation_style','seo_plugin','human_review_required','default_author',
-                     'competitor_sites','preferred_providers'];
     const updates = [];
     const values = [];
     let idx = 1;
 
-    for (const key of allowed) {
+    // C-5 Fix: Iterasi hanya atas kolom yang ada di whitelist SITES_ALLOWED_COLS.
+    // Nama kolom tidak pernah berasal dari user input — hanya nilai yang diparameterkan.
+    for (const key of SITES_ALLOWED_COLS) {
       if (req.body[key] !== undefined) {
         if (key === 'wordpress_app_password') {
           updates.push(`wordpress_app_password_enc = $${idx++}`);
